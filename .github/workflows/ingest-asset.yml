@@ -20,6 +20,11 @@ on:
         required: true
         default: 'misc'
         type: string
+      rip_template:
+        description: 'If mode is template, also rip assets into stan-assets'
+        required: true
+        default: true
+        type: boolean
       description:
         description: 'Description for Vectorize indexing'
         required: false
@@ -47,37 +52,41 @@ jobs:
         id: process
         run: |
           mkdir -p processed_data
+          mkdir -p processed_assets
           MODE="${{ github.event.inputs.mode }}"
           
+          # 1. Handle Template Storage
           if [ "$MODE" == "template" ]; then
             echo "📦 Mode: Template. Copying to templates/${{ github.event.inputs.asset_type }}"
             mkdir -p "processed_data/templates/${{ github.event.inputs.asset_type }}"
             cp raw_data/incoming "processed_data/templates/${{ github.event.inputs.asset_type }}/base.unitypackage"
-          
-          elif [ "$MODE" == "asset-single" ]; then
-            echo "🖼️ Mode: Single Asset. Copying to library/${{ github.event.inputs.asset_type }}"
-            mkdir -p "processed_data/library/${{ github.event.inputs.asset_type }}"
-            # Try to guess extension or use a generic name
-            cp raw_data/incoming "processed_data/library/${{ github.event.inputs.asset_type }}/asset_$(date +%s)"
-          
-          elif [ "$MODE" == "asset-rip" ]; then
-            echo "🪚 Mode: Asset Ripper. Extracting UnityPackage..."
+          fi
+
+          # 2. Handle Asset Ripping (Mode: asset-rip OR (Mode: template AND rip_template: true))
+          RIP_TEMPLATE="${{ github.event.inputs.rip_template }}"
+          if [ "$MODE" == "asset-rip" ] || ([ "$MODE" == "template" ] && [ "$RIP_TEMPLATE" == "true" ]); then
+            echo "🪚 Running Asset Ripper..."
             mkdir -p rip_temp
-            # UnityPackages are usually tar.gz
-            # This is a simplified ripper logic
             tar -xzf raw_data/incoming -C rip_temp || true
             
-            # Basic reconstruction:
-            # Each folder in a .unitypackage has an 'asset' file and a 'pathname' file
+            # Map Unity assets to a clean folder structure in processed_assets
+            FIND_PATH="library/ripped/${{ github.event.inputs.asset_type }}"
             find rip_temp -name "pathname" | while read p; do
               DIR=$(dirname "$p")
               FINAL_PATH=$(cat "$p")
               if [ -f "$DIR/asset" ]; then
-                mkdir -p "processed_data/library/ripped/$(dirname "$FINAL_PATH")"
-                cp "$DIR/asset" "processed_data/library/ripped/$FINAL_PATH"
+                mkdir -p "processed_assets/$FIND_PATH/$(dirname "$FINAL_PATH")"
+                cp "$DIR/asset" "processed_assets/$FIND_PATH/$FINAL_PATH"
               fi
             done
             echo "✅ Ripping complete"
+          fi
+
+          # 3. Handle Single Asset Ingestion
+          if [ "$MODE" == "asset-single" ]; then
+            echo "🖼️ Mode: Single Asset."
+            mkdir -p "processed_assets/library/${{ github.event.inputs.asset_type }}"
+            cp raw_data/incoming "processed_assets/library/${{ github.event.inputs.asset_type }}/asset_$(date +%s)"
           fi
 
       - name: Sync to Cloudflare R2
@@ -91,16 +100,19 @@ jobs:
           aws configure set aws_secret_access_key $R2_SECRET_KEY
           aws configure set default.region auto
           
-          MODE="${{ github.event.inputs.mode }}"
-          if [ "$MODE" == "template" ]; then
-            BUCKET="stan-templates"
-          else
-            BUCKET="stan-assets"
+          # Upload to Templates bucket if needed
+          if [ -d "processed_data/templates" ]; then
+            echo "🚀 Syncing to R2 Bucket: stan-templates"
+            aws s3 sync processed_data/templates/ s3://stan-templates/ \
+              --endpoint-url $R2_ENDPOINT
           fi
-          
-          echo "🚀 Syncing to R2 Bucket: $BUCKET"
-          aws s3 sync processed_data/ s3://$BUCKET/ \
-            --endpoint-url $R2_ENDPOINT
+
+          # Upload to Assets bucket if needed
+          if [ -d "processed_assets/library" ]; then
+            echo "🚀 Syncing to R2 Bucket: stan-assets"
+            aws s3 sync processed_assets/library/ s3://stan-assets/library/ \
+              --endpoint-url $R2_ENDPOINT
+          fi
           
       - name: Notify Backend for Vectorize
         env:

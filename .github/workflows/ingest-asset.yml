@@ -1,30 +1,29 @@
-name: Asset Ripper & Ingest
+name: Stan Asset & Template Ingest
 
 on:
   workflow_dispatch:
     inputs:
-      source_url:
-        description: 'URL of the UnityPackage or Zip to ingest'
-        required: false
-        type: string
-      target_bucket:
-        description: 'Target R2 Bucket (stan-assets, stan-templates)'
+      mode:
+        description: 'Ingestion Mode'
         required: true
-        default: 'stan-assets'
         type: choice
         options:
-          - stan-assets
-          - stan-templates
-      target_folder:
-        description: 'Specific folder path in R2'
+          - template        # Full UnityPackage to stan-templates
+          - asset-single    # Single file to stan-assets/[type]
+          - asset-rip       # UnityPackage to be stripped into stan-assets
+      source_url:
+        description: 'Public URL of the asset/package'
         required: true
-        default: 'library/incoming'
         type: string
-      strip_assets:
-        description: 'If true, will attempt to extract individual files from a UnityPackage'
+      asset_type:
+        description: 'Sub-folder/Category (e.g., sprites, models, racing)'
         required: true
-        default: true
-        type: boolean
+        default: 'misc'
+        type: string
+      description:
+        description: 'Description for Vectorize indexing'
+        required: false
+        type: string
 
 jobs:
   ingest:
@@ -38,41 +37,72 @@ jobs:
         with:
           node-version: 20
 
-      # High-speed download using GitHub's backbone
-      - name: Download Asset
-        if: github.event.inputs.source_url != ''
+      - name: High-Speed Download
         run: |
           mkdir -p raw_data
-          curl -L "${{ github.event.inputs.source_url }}" -o raw_data/incoming_file
-          echo "✅ Downloaded at $(date)"
+          curl -L "${{ github.event.inputs.source_url }}" -o raw_data/incoming
+          echo "✅ Downloaded from ${{ github.event.inputs.source_url }}"
 
-      - name: "Process & Categorize Assets"
+      - name: Process Ingestion
         id: process
         run: |
-          # Logic to unzip or rip UnityPackage
-          # This is where we'd add the 'Ripper' script later
           mkdir -p processed_data
-          cp -r raw_data/* processed_data/ || true
-          echo "✅ Assets processed"
+          MODE="${{ github.event.inputs.mode }}"
+          
+          if [ "$MODE" == "template" ]; then
+            echo "📦 Mode: Template. Copying to templates/${{ github.event.inputs.asset_type }}"
+            mkdir -p "processed_data/templates/${{ github.event.inputs.asset_type }}"
+            cp raw_data/incoming "processed_data/templates/${{ github.event.inputs.asset_type }}/base.unitypackage"
+          
+          elif [ "$MODE" == "asset-single" ]; then
+            echo "🖼️ Mode: Single Asset. Copying to library/${{ github.event.inputs.asset_type }}"
+            mkdir -p "processed_data/library/${{ github.event.inputs.asset_type }}"
+            # Try to guess extension or use a generic name
+            cp raw_data/incoming "processed_data/library/${{ github.event.inputs.asset_type }}/asset_$(date +%s)"
+          
+          elif [ "$MODE" == "asset-rip" ]; then
+            echo "🪚 Mode: Asset Ripper. Extracting UnityPackage..."
+            mkdir -p rip_temp
+            # UnityPackages are usually tar.gz
+            # This is a simplified ripper logic
+            tar -xzf raw_data/incoming -C rip_temp || true
+            
+            # Basic reconstruction:
+            # Each folder in a .unitypackage has an 'asset' file and a 'pathname' file
+            find rip_temp -name "pathname" | while read p; do
+              DIR=$(dirname "$p")
+              FINAL_PATH=$(cat "$p")
+              if [ -f "$DIR/asset" ]; then
+                mkdir -p "processed_data/library/ripped/$(dirname "$FINAL_PATH")"
+                cp "$DIR/asset" "processed_data/library/ripped/$FINAL_PATH"
+              fi
+            done
+            echo "✅ Ripping complete"
+          fi
 
-      - name: "Upload to R2"
+      - name: Sync to Cloudflare R2
         env:
           R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
           R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          TARGET_BUCKET: ${{ github.event.inputs.target_bucket }}
         run: |
           pip install awscli
           aws configure set aws_access_key_id $R2_ACCESS_KEY
           aws configure set aws_secret_access_key $R2_SECRET_KEY
           aws configure set default.region auto
           
-          # Sync to the specific path
-          aws s3 sync processed_data/ s3://$TARGET_BUCKET/${{ github.event.inputs.target_folder }} \
-            --endpoint-url $R2_ENDPOINT \
-            --delete
-
-      - name: "Notify Backend & Index Vectorize"
+          MODE="${{ github.event.inputs.mode }}"
+          if [ "$MODE" == "template" ]; then
+            BUCKET="stan-templates"
+          else
+            BUCKET="stan-assets"
+          fi
+          
+          echo "🚀 Syncing to R2 Bucket: $BUCKET"
+          aws s3 sync processed_data/ s3://$BUCKET/ \
+            --endpoint-url $R2_ENDPOINT
+          
+      - name: Notify Backend for Vectorize
         env:
           STAN_BACKEND_URL: ${{ secrets.STAN_BACKEND_URL }}
           STAN_API_KEY: ${{ secrets.STAN_API_KEY }}
@@ -81,7 +111,9 @@ jobs:
             -H "Authorization: Bearer $STAN_API_KEY" \
             -H "Content-Type: application/json" \
             -d '{
-              "bucket": "${{ github.event.inputs.target_bucket }}",
-              "folder": "${{ github.event.inputs.target_folder }}",
+              "mode": "${{ github.event.inputs.mode }}",
+              "type": "${{ github.event.inputs.asset_type }}",
+              "description": "${{ github.event.inputs.description }}",
+              "url": "${{ github.event.inputs.source_url }}",
               "status": "completed"
             }'

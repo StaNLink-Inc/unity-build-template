@@ -1,0 +1,87 @@
+name: Asset Ripper & Ingest
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_url:
+        description: 'URL of the UnityPackage or Zip to ingest'
+        required: false
+        type: string
+      target_bucket:
+        description: 'Target R2 Bucket (stan-assets, stan-templates)'
+        required: true
+        default: 'stan-assets'
+        type: choice
+        options:
+          - stan-assets
+          - stan-templates
+      target_folder:
+        description: 'Specific folder path in R2'
+        required: true
+        default: 'library/incoming'
+        type: string
+      strip_assets:
+        description: 'If true, will attempt to extract individual files from a UnityPackage'
+        required: true
+        default: true
+        type: boolean
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # High-speed download using GitHub's backbone
+      - name: Download Asset
+        if: github.event.inputs.source_url != ''
+        run: |
+          mkdir -p raw_data
+          curl -L "${{ github.event.inputs.source_url }}" -o raw_data/incoming_file
+          echo "✅ Downloaded at $(date)"
+
+      - name: "Process & Categorize Assets"
+        id: process
+        run: |
+          # Logic to unzip or rip UnityPackage
+          # This is where we'd add the 'Ripper' script later
+          mkdir -p processed_data
+          cp -r raw_data/* processed_data/ || true
+          echo "✅ Assets processed"
+
+      - name: "Upload to R2"
+        env:
+          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
+          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          TARGET_BUCKET: ${{ github.event.inputs.target_bucket }}
+        run: |
+          pip install awscli
+          aws configure set aws_access_key_id $R2_ACCESS_KEY
+          aws configure set aws_secret_access_key $R2_SECRET_KEY
+          aws configure set default.region auto
+          
+          # Sync to the specific path
+          aws s3 sync processed_data/ s3://$TARGET_BUCKET/${{ github.event.inputs.target_folder }} \
+            --endpoint-url $R2_ENDPOINT \
+            --delete
+
+      - name: "Notify Backend & Index Vectorize"
+        env:
+          STAN_BACKEND_URL: ${{ secrets.STAN_BACKEND_URL }}
+          STAN_API_KEY: ${{ secrets.STAN_API_KEY }}
+        run: |
+          curl -X POST "$STAN_BACKEND_URL/api/admin/index-notify" \
+            -H "Authorization: Bearer $STAN_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "bucket": "${{ github.event.inputs.target_bucket }}",
+              "folder": "${{ github.event.inputs.target_folder }}",
+              "status": "completed"
+            }'

@@ -179,17 +179,28 @@ jobs:
         env:
           STAN_BACKEND_URL: ${{ secrets.STAN_BACKEND_URL }}
           STAN_API_KEY: ${{ secrets.STAN_API_KEY }}
+          STAN_ASSETS_PUBLIC_URL: ${{ secrets.STAN_ASSETS_PUBLIC_URL }}
         run: |
+          # Collect list of ripped assets if any
+          RIPPED_ASSETS="[]"
+          if [ -d "processed_assets/library/ripped" ]; then
+            echo "📋 Collecting ripped assets..."
+            RIPPED_ASSETS=$(find processed_assets/library/ripped -type f -printf '%P\n' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            echo "Found assets: $RIPPED_ASSETS"
+          fi
+          
           curl -X POST "$STAN_BACKEND_URL/api/admin/index-notify" \
             -H "Authorization: Bearer $STAN_API_KEY" \
             -H "Content-Type: application/json" \
-            -d '{
-              "mode": "${{ github.event.inputs.mode }}",
-              "type": "${{ github.event.inputs.asset_type }}",
-              "description": "${{ github.event.inputs.description }}",
-              "url": "${{ github.event.inputs.source_url }}",
-              "status": "completed"
-            }'
+            -d "{
+              \"mode\": \"${{ github.event.inputs.mode }}\",
+              \"type\": \"${{ github.event.inputs.asset_type }}\",
+              \"description\": \"${{ github.event.inputs.description }}\",
+              \"url\": \"${{ github.event.inputs.source_url }}\",
+              \"status\": \"completed\",
+              \"rippedAssets\": $RIPPED_ASSETS,
+              \"assetsPublicUrl\": \"$STAN_ASSETS_PUBLIC_URL\"
+            }"
       
       - name: Cleanup Temp Files
         if: github.event.inputs.temp_path != ''

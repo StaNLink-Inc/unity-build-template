@@ -133,18 +133,20 @@ jobs:
           aws configure set aws_secret_access_key $R2_SECRET_KEY
           aws configure set default.region auto
           
-          # Upload to Templates bucket if needed
+          # Upload to TEMPLATES bucket (stan-templates) if needed
           if [ -d "processed_data/templates" ]; then
             echo "🚀 Syncing to R2 Bucket: stan-templates"
             aws s3 sync processed_data/templates/ s3://stan-templates/ \
               --endpoint-url $R2_ENDPOINT
+            echo "✅ Templates uploaded to stan-templates bucket"
           fi
 
-          # Upload to Assets bucket if needed
+          # Upload to ASSETS bucket (stan-assets) if needed
           if [ -d "processed_assets/library" ]; then
             echo "🚀 Syncing to R2 Bucket: stan-assets"
             aws s3 sync processed_assets/library/ s3://stan-assets/library/ \
               --endpoint-url $R2_ENDPOINT
+            echo "✅ Assets uploaded to stan-assets bucket"
           fi
           
       - name: Notify Backend for Vectorize

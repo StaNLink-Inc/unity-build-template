@@ -51,26 +51,34 @@ jobs:
           R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
           R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
+          STAN_ASSETS_PUBLIC_URL: ${{ secrets.STAN_ASSETS_PUBLIC_URL }}
         run: |
           mkdir -p raw_data
           SOURCE_URL="${{ github.event.inputs.source_url }}"
           
-          # Check if source is R2 path (not a full URL)
-          if [[ "$SOURCE_URL" != http* ]]; then
-            echo "📥 Downloading from R2 using AWS CLI..."
+          # Check if source is R2 bucket path (starts with stan-assets/ or stan-templates/)
+          if [[ "$SOURCE_URL" == stan-assets/* ]] || [[ "$SOURCE_URL" == stan-templates/* ]]; then
+            echo "📥 Downloading from R2 bucket path: $SOURCE_URL"
             pip install awscli
             aws configure set aws_access_key_id $R2_ACCESS_KEY
             aws configure set aws_secret_access_key $R2_SECRET_KEY
             aws configure set default.region auto
             
-            # Assume it's a path like "library/sprites/asset.png"
+            # Extract bucket name and path
+            BUCKET=$(echo "$SOURCE_URL" | cut -d'/' -f1)
+            PATH_IN_BUCKET=$(echo "$SOURCE_URL" | cut -d'/' -f2-)
+            
+            echo "Bucket: $BUCKET, Path: $PATH_IN_BUCKET"
+            aws s3 cp s3://$BUCKET/$PATH_IN_BUCKET raw_data/incoming --endpoint-url $R2_ENDPOINT
+          elif [[ "$SOURCE_URL" != http* ]]; then
+            echo "📥 Downloading from R2 path (assuming stan-assets): $SOURCE_URL"
+            pip install awscli
+            aws configure set aws_access_key_id $R2_ACCESS_KEY
+            aws configure set aws_secret_access_key $R2_SECRET_KEY
+            aws configure set default.region auto
             aws s3 cp s3://stan-assets/$SOURCE_URL raw_data/incoming --endpoint-url $R2_ENDPOINT
-          elif [[ "$SOURCE_URL" == *"r2.cloudflarestorage.com"* ]] || [[ "$SOURCE_URL" == *"r2.dev"* ]]; then
-            echo "📥 Downloading from R2 dev URL..."
-            curl -L -f "$SOURCE_URL" -o raw_data/incoming
           else
-            echo "📥 Downloading from public URL..."
+            echo "📥 Downloading from URL: $SOURCE_URL"
             curl -L -f "$SOURCE_URL" -o raw_data/incoming
           fi
           
@@ -79,7 +87,7 @@ jobs:
             exit 1
           fi
           
-          echo "✅ Downloaded from $SOURCE_URL"
+          echo "✅ Downloaded successfully"
 
       - name: Process Ingestion
         id: process

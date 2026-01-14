@@ -12,8 +12,12 @@ on:
           - asset-single    # Single file to stan-assets/[type]
           - asset-rip       # UnityPackage to be stripped into stan-assets
       source_url:
-        description: 'Public URL of the asset/package'
+        description: 'Public URL or R2 path of the asset/package'
         required: true
+        type: string
+      temp_path:
+        description: 'Temp R2 path to delete after processing (optional)'
+        required: false
         type: string
       asset_type:
         description: 'Sub-folder/Category (e.g., sprites, models, racing)'
@@ -43,9 +47,29 @@ jobs:
           node-version: 20
 
       - name: High-Speed Download
+        env:
+          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
+          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
         run: |
           mkdir -p raw_data
-          curl -L "${{ github.event.inputs.source_url }}" -o raw_data/incoming
+          
+          # Check if source is R2 URL
+          if [[ "${{ github.event.inputs.source_url }}" == *"r2.cloudflarestorage.com"* ]]; then
+            echo "📥 Downloading from R2..."
+            pip install awscli
+            aws configure set aws_access_key_id $R2_ACCESS_KEY
+            aws configure set aws_secret_access_key $R2_SECRET_KEY
+            aws configure set default.region auto
+            
+            # Extract path from URL
+            R2_PATH=$(echo "${{ github.event.inputs.source_url }}" | sed 's|.*/stan-assets/||')
+            aws s3 cp s3://stan-assets/$R2_PATH raw_data/incoming --endpoint-url $R2_ENDPOINT
+          else
+            echo "📥 Downloading from public URL..."
+            curl -L "${{ github.event.inputs.source_url }}" -o raw_data/incoming
+          fi
+          
           echo "✅ Downloaded from ${{ github.event.inputs.source_url }}"
 
       - name: Process Ingestion
@@ -129,3 +153,18 @@ jobs:
               "url": "${{ github.event.inputs.source_url }}",
               "status": "completed"
             }'
+      
+      - name: Cleanup Temp Files
+        if: github.event.inputs.temp_path != ''
+        env:
+          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
+          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          echo "🧽 Cleaning up temp file: ${{ github.event.inputs.temp_path }}"
+          pip install awscli
+          aws configure set aws_access_key_id $R2_ACCESS_KEY
+          aws configure set aws_secret_access_key $R2_SECRET_KEY
+          aws configure set default.region auto
+          aws s3 rm s3://stan-assets/${{ github.event.inputs.temp_path }} --endpoint-url $R2_ENDPOINT
+          echo "✅ Temp file deleted"

@@ -57,17 +57,33 @@ jobs:
           mkdir -p raw_data
           SOURCE_URL="${{ github.event.inputs.source_url }}"
           
-          # Check if source is R2 bucket path (starts with stan-assets/ or stan-templates/)
-          if [[ "$SOURCE_URL" == stan-assets/* ]]; then
+          # Extract path from full URL if it contains stan-assets/ or stan-templates/
+          if [[ "$SOURCE_URL" == *"/stan-assets/"* ]]; then
+            echo "📥 Detected stan-assets URL, extracting path..."
+            BUCKET_PATH=$(echo "$SOURCE_URL" | sed 's|.*/\(stan-assets/.*\)|\1|')
+            echo "Extracted path: $BUCKET_PATH"
+            ENCODED_PATH=$(echo "$BUCKET_PATH" | sed 's/ /%20/g')
+            FULL_URL="${STAN_ASSETS_PUBLIC_URL}/${ENCODED_PATH}"
+            echo "Full URL: $FULL_URL"
+            curl -L -f "$FULL_URL" -o raw_data/incoming
+          elif [[ "$SOURCE_URL" == *"/stan-templates/"* ]]; then
+            echo "📥 Detected stan-templates URL, extracting path..."
+            BUCKET_PATH=$(echo "$SOURCE_URL" | sed 's|.*/\(stan-templates/.*\)|\1|')
+            echo "Extracted path: $BUCKET_PATH"
+            ENCODED_PATH=$(echo "$BUCKET_PATH" | sed 's/ /%20/g')
+            FULL_URL="${STAN_TEMPLATES_PUBLIC_URL}/${ENCODED_PATH}"
+            echo "Full URL: $FULL_URL"
+            curl -L -f "$FULL_URL" -o raw_data/incoming
+          elif [[ "$SOURCE_URL" == stan-assets/* ]]; then
             echo "📥 Downloading from R2 bucket path: $SOURCE_URL"
-            # Construct full public URL
-            FULL_URL="${STAN_ASSETS_PUBLIC_URL}/${SOURCE_URL}"
+            ENCODED_PATH=$(echo "$SOURCE_URL" | sed 's/ /%20/g')
+            FULL_URL="${STAN_ASSETS_PUBLIC_URL}/${ENCODED_PATH}"
             echo "Full URL: $FULL_URL"
             curl -L -f "$FULL_URL" -o raw_data/incoming
           elif [[ "$SOURCE_URL" == stan-templates/* ]]; then
             echo "📥 Downloading from R2 bucket path: $SOURCE_URL"
-            # Construct full public URL
-            FULL_URL="${STAN_TEMPLATES_PUBLIC_URL}/${SOURCE_URL}"
+            ENCODED_PATH=$(echo "$SOURCE_URL" | sed 's/ /%20/g')
+            FULL_URL="${STAN_TEMPLATES_PUBLIC_URL}/${ENCODED_PATH}"
             echo "Full URL: $FULL_URL"
             curl -L -f "$FULL_URL" -o raw_data/incoming
           elif [[ "$SOURCE_URL" != http* ]]; then
@@ -78,7 +94,7 @@ jobs:
             aws configure set default.region auto
             aws s3 cp s3://stan-assets/$SOURCE_URL raw_data/incoming --endpoint-url $R2_ENDPOINT
           else
-            echo "📥 Downloading from URL: $SOURCE_URL"
+            echo "📥 Downloading from external URL: $SOURCE_URL"
             curl -L -f "$SOURCE_URL" -o raw_data/incoming
           fi
           

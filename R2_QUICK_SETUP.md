@@ -15,14 +15,29 @@ stan-templates/          stan-assets/
 
 ## ⚡ Quick Setup (5 minutes)
 
-### 1. Enable Public Access
+### 1. Add Custom Domains (RECOMMENDED)
+```
+Cloudflare Dashboard → R2 → stan-templates → Settings → Custom Domains
+Add: stantemplates.cloud.stanlink.online
+
+Cloudflare Dashboard → R2 → stan-assets → Settings → Custom Domains
+Add: stanassets.cloud.stanlink.online
+
+Wait 5-10 minutes for DNS propagation
+```
+
+### 2. Enable Public Access
 ```
 Cloudflare Dashboard → R2 → stan-templates → Settings → Public Access → Allow
 Cloudflare Dashboard → R2 → stan-assets → Settings → Public Access → Allow
 ```
 
-### 2. Get Dev URLs
+### 3. Get URLs
 ```
+stan-templates: https://stantemplates.cloud.stanlink.online
+stan-assets:    https://stanassets.cloud.stanlink.online
+
+Backup dev URLs (optional):
 stan-templates: https://pub-xxxxx.r2.dev
 stan-assets:    https://pub-yyyyy.r2.dev
 ```
@@ -36,9 +51,9 @@ Required:
 - R2_SECRET_KEY  
 - R2_ENDPOINT (https://<account-id>.r2.cloudflarestorage.com)
 
-Optional:
-- STAN_TEMPLATES_PUBLIC_URL
-- STAN_ASSETS_PUBLIC_URL
+Recommended:
+- STAN_TEMPLATES_PUBLIC_URL (https://stantemplates.cloud.stanlink.online)
+- STAN_ASSETS_PUBLIC_URL (https://stanassets.cloud.stanlink.online)
 - STAN_BACKEND_URL
 - STAN_API_KEY
 ```
@@ -70,6 +85,7 @@ rip_template: true
 **Result:** 
 - `stan-templates/racing/base.unitypackage` ✅
 - `stan-assets/library/ripped/racing/*` ✅
+- Available at: https://stantemplates.cloud.stanlink.online/racing/base.unitypackage
 
 ### Upload Single Asset
 ```yaml

@@ -18,7 +18,44 @@ You have 2 R2 buckets for raw materials:
 
 ## 🔧 Cloudflare Dashboard Setup
 
-### Step 1: Enable Public Access on Both Buckets
+### Step 1: Add Custom Domains to Buckets (RECOMMENDED)
+
+#### For `stan-templates`:
+```bash
+1. Go to: Cloudflare Dashboard → R2 → stan-templates
+2. Click "Settings" tab
+3. Scroll to "Custom Domains"
+4. Click "Connect Domain"
+5. Enter: stantemplates.cloud.stanlink.online
+6. Click "Continue" and follow DNS setup
+7. Wait for DNS propagation (usually 5-10 minutes)
+8. Your templates will be available at: https://stantemplates.cloud.stanlink.online
+```
+
+#### For `stan-assets`:
+```bash
+1. Go to: Cloudflare Dashboard → R2 → stan-assets
+2. Click "Settings" tab
+3. Scroll to "Custom Domains"
+4. Click "Connect Domain"
+5. Enter: stanassets.cloud.stanlink.online
+6. Click "Continue" and follow DNS setup
+7. Wait for DNS propagation (usually 5-10 minutes)
+8. Your assets will be available at: https://stanassets.cloud.stanlink.online
+```
+
+**Benefits of Custom Domains:**
+- ✅ Unlimited bandwidth (no rate limits)
+- ✅ Professional branding
+- ✅ Better performance with Cloudflare CDN
+- ✅ No user limits (dev URLs are restricted)
+- ✅ Custom caching and security rules
+
+---
+
+### Step 2: Enable Public Access (Required)
+
+Even with custom domains, you need to enable public access:
 
 #### For `stan-templates`:
 ```bash
@@ -26,8 +63,7 @@ You have 2 R2 buckets for raw materials:
 2. Click "Settings" tab
 3. Scroll to "Public Access"
 4. Click "Allow Access"
-5. Copy the dev URL (looks like: https://pub-xxxxx.r2.dev)
-6. Save this as: STAN_TEMPLATES_PUBLIC_URL
+5. (Optional) Note the dev URL as backup: https://pub-xxxxx.r2.dev
 ```
 
 #### For `stan-assets`:
@@ -36,8 +72,7 @@ You have 2 R2 buckets for raw materials:
 2. Click "Settings" tab
 3. Scroll to "Public Access"
 4. Click "Allow Access"
-5. Copy the dev URL (looks like: https://pub-yyyyy.r2.dev)
-6. Save this as: STAN_ASSETS_PUBLIC_URL
+5. (Optional) Note the dev URL as backup: https://pub-yyyyy.r2.dev
 ```
 
 ---
@@ -64,13 +99,15 @@ Repository → Settings → Secrets and variables → Actions → New repository
    - Format: `https://<account-id>.r2.cloudflarestorage.com`
    - Get account ID from: Cloudflare Dashboard → R2 (in URL)
 
-4. **STAN_TEMPLATES_PUBLIC_URL** (Optional but recommended)
-   - The public dev URL for stan-templates bucket
-   - Example: `https://pub-xxxxx.r2.dev`
+4. **STAN_TEMPLATES_PUBLIC_URL** (RECOMMENDED)
+   - Your custom domain for templates
+   - Example: `https://stantemplates.cloud.stanlink.online`
+   - Fallback: `https://pub-xxxxx.r2.dev` (dev URL)
 
-5. **STAN_ASSETS_PUBLIC_URL** (Optional but recommended)
-   - The public dev URL for stan-assets bucket
-   - Example: `https://pub-yyyyy.r2.dev`
+5. **STAN_ASSETS_PUBLIC_URL** (RECOMMENDED)
+   - Your custom domain for assets
+   - Example: `https://stanassets.cloud.stanlink.online`
+   - Fallback: `https://pub-yyyyy.r2.dev` (dev URL)
 
 6. **STAN_BACKEND_URL**
    - Your backend URL for Vectorize notifications
@@ -102,17 +139,17 @@ description: "Racing game template with car physics"
 
 ---
 
-### Example 2: Upload Template from R2 Dev URL
+### Example 2: Upload Template from Custom Domain
 ```yaml
 mode: template
-source_url: https://pub-xxxxx.r2.dev/temp/uploaded-template.unitypackage
+source_url: https://stantemplates.cloud.stanlink.online/temp/uploaded-template.unitypackage
 asset_type: platformer
 rip_template: true
 description: "2D platformer template"
 ```
 
 **What happens:**
-1. Downloads from R2 dev URL (no auth needed)
+1. Downloads from custom domain (fast, unlimited bandwidth)
 2. Saves to `stan-templates/platformer/base.unitypackage`
 3. Rips assets to `stan-assets/library/ripped/platformer/`
 

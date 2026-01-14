@@ -51,26 +51,35 @@ jobs:
           R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
           R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
         run: |
           mkdir -p raw_data
+          SOURCE_URL="${{ github.event.inputs.source_url }}"
           
-          # Check if source is R2 URL
-          if [[ "${{ github.event.inputs.source_url }}" == *"r2.cloudflarestorage.com"* ]]; then
-            echo "📥 Downloading from R2..."
+          # Check if source is R2 path (not a full URL)
+          if [[ "$SOURCE_URL" != http* ]]; then
+            echo "📥 Downloading from R2 using AWS CLI..."
             pip install awscli
             aws configure set aws_access_key_id $R2_ACCESS_KEY
             aws configure set aws_secret_access_key $R2_SECRET_KEY
             aws configure set default.region auto
             
-            # Extract path from URL
-            R2_PATH=$(echo "${{ github.event.inputs.source_url }}" | sed 's|.*/stan-assets/||')
-            aws s3 cp s3://stan-assets/$R2_PATH raw_data/incoming --endpoint-url $R2_ENDPOINT
+            # Assume it's a path like "library/sprites/asset.png"
+            aws s3 cp s3://stan-assets/$SOURCE_URL raw_data/incoming --endpoint-url $R2_ENDPOINT
+          elif [[ "$SOURCE_URL" == *"r2.cloudflarestorage.com"* ]] || [[ "$SOURCE_URL" == *"r2.dev"* ]]; then
+            echo "📥 Downloading from R2 dev URL..."
+            curl -L -f "$SOURCE_URL" -o raw_data/incoming
           else
             echo "📥 Downloading from public URL..."
-            curl -L "${{ github.event.inputs.source_url }}" -o raw_data/incoming
+            curl -L -f "$SOURCE_URL" -o raw_data/incoming
           fi
           
-          echo "✅ Downloaded from ${{ github.event.inputs.source_url }}"
+          if [ ! -f raw_data/incoming ]; then
+            echo "❌ Download failed!"
+            exit 1
+          fi
+          
+          echo "✅ Downloaded from $SOURCE_URL"
 
       - name: Process Ingestion
         id: process

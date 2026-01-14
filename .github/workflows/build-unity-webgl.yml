@@ -76,6 +76,13 @@ jobs:
           unityVersion: 2022.3.10f1
           buildName: ${{ github.event.inputs.game_name }}
       
+      # Inject Adsterra Ads
+      - name: Inject Stan Monetization
+        run: |
+          echo "💰 Injecting Adsterra ads..."
+          node inject-ads.js
+          echo "✅ Ads injected"
+      
       # Deploy to R2 Games Bucket (ORDERLY)
       - name: Deploy to R2 Games Bucket
         env:
@@ -100,7 +107,7 @@ jobs:
             --endpoint-url $R2_ENDPOINT \
             --delete
           
-          echo "✅ Deployed to R2: https://${{ github.event.inputs.slug }}.stan-games.stanl.ink"
+          echo "✅ Deployed to R2: https://games.stanlink.online/${{ github.event.inputs.slug }}"
       
       # Notify STAN backend of completion
       - name: Notify STAN Backend
@@ -114,7 +121,7 @@ jobs:
             -d '{
               "project_id": "${{ github.event.inputs.project_id }}",
               "status": "success",
-              "deploy_url": "https://${{ github.event.inputs.slug }}.stan-games.stanl.ink"
+              "deploy_url": "https://games.stanlink.online/${{ github.event.inputs.slug }}"
             }'
       
       # Cleanup

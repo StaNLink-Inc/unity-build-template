@@ -1,72 +1,62 @@
-# Unity Build Template
+# Unity Build Template for STAN
 
-This repository contains GitHub Actions workflows for building Unity WebGL games for the STAN platform.
+This repository contains GitHub Actions workflows for building Unity WebGL games created by STAN AI.
 
-## 🎯 Purpose
+## 🎯 Features
 
-- Builds Unity games from R2 storage
-- Deploys to Cloudflare Pages
-- No Unity files stored in Git!
+- **Automated Unity WebGL Builds**: Triggered via workflow_dispatch from STAN backend
+- **Ad Injection**: Automatically injects Adsterra monetization for free-tier games
+- **Domain Lockdown**: Games only run on `*.stanlink.online` and `*.stanl.ink` domains
+- **R2 Deployment**: Builds deployed to Cloudflare R2 bucket `stan-games`
 
 ## 🔧 Setup
 
-### 1. Repository Secrets
-
-Add these secrets to your repository:
+### Repository Secrets
 
 **R2 Configuration:**
 - `R2_ACCESS_KEY`: Your R2 access key
 - `R2_SECRET_KEY`: Your R2 secret key
 - `R2_ENDPOINT`: `https://<account-id>.r2.cloudflarestorage.com`
-- `R2_BUCKET`: `stan-assets`
 
 **Unity License:**
-- `UNITY_LICENSE`: Your Unity license file content
 - `UNITY_EMAIL`: Your Unity account email
 - `UNITY_PASSWORD`: Your Unity account password
-
-**Cloudflare Pages:**
-- `CLOUDFLARE_API_TOKEN`: Your CF API token
-- `CLOUDFLARE_ACCOUNT_ID`: Your CF account ID
 
 **STAN Backend:**
 - `STAN_BACKEND_URL`: `https://stan-backend.stanleyisaac134.workers.dev`
 - `STAN_API_KEY`: Your STAN API key
 
-### 2. Workflow Trigger
-
-The workflow is triggered via API:
-
-```bash
-curl -X POST \
-  https://api.github.com/repos/StaNLink-Inc/unity-build-template/actions/workflows/build-unity-webgl.yml/dispatches \
-  -H "Authorization: Bearer $GITHUB_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "ref": "main",
-    "inputs": {
-      "project_id": "proj_abc123",
-      "r2_path": "projects/proj_abc123",
-      "game_name": "My Awesome Game"
-    }
-  }'
-```
-
 ## 📊 Build Process
 
-1. **Download** Unity project from R2 (2 min)
-2. **Build** WebGL with Unity (5-10 min)
-3. **Deploy** to CF Pages (1 min)
-4. **Notify** STAN backend
-5. **Cleanup** all files
+1. **Download** Unity project from R2 `stan-projects` bucket
+2. **Build** WebGL using Unity Builder (game-ci/unity-builder@v4)
+3. **Inject Ads** - Adsterra script added to `index.html`
+4. **Deploy** to R2 `stan-games/{slug}/` folder
+5. **Notify** STAN backend of completion
+6. **Cleanup** all temporary files
 
-## 🎮 Result
+## 🔒 Security Features
 
-Game deployed to: `https://{project_id}.stan-games.pages.dev`
+### Domain Lockdown
+- **StanSecurity.cs**: Injected by CodingAgent into every game
+- **StanBridge.jslib**: WebGL plugin for URL verification
+- Games check if hosted on authorized domains (`stanlink.online` or `stanl.ink`)
+- Unauthorized hosting redirects to `https://games.stanlink.online`
+
+### Ad Injection
+- `inject-ads.js` runs post-build
+- Adsterra Social Bar script injected into `index.html`
+- Free-tier games monetized automatically
+
+## 🎮 Deployment
+
+Games are accessible at: **`https://games.stanlink.online/{slug}`**
+
+Example: `https://games.stanlink.online/efootball`
 
 ## 💰 Cost
 
 - GitHub Actions: **FREE** (2000 min/month)
-- Cloudflare Pages: **FREE** (unlimited)
+- Cloudflare R2: **FREE** (10GB storage)
 
 Total: **$0/month** 🎉

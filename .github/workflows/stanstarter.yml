@@ -1,0 +1,357 @@
+name: Build StanStarter Base Game
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-stanstarter:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout unity-build-template
+        uses: actions/checkout@v3
+      
+      - name: Activate Unity License
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: ./stanstarter
+          targetPlatform: WebGL
+          unityVersion: 2022.3.10f1
+          buildName: StanStarter
+      
+      - name: Create Unity Project Structure
+        run: |
+          mkdir -p stanstarter/Assets/_StanCore/Scripts
+          mkdir -p stanstarter/Assets/_StanCore/Prefabs
+          mkdir -p stanstarter/Assets/_StanCore/Resources
+          mkdir -p stanstarter/Packages
+          mkdir -p stanstarter/ProjectSettings
+      
+      - name: Create StanDomainLock.cs
+        run: |
+          cat > stanstarter/Assets/_StanCore/Scripts/StanDomainLock.cs << 'EOF'
+          using UnityEngine;
+          
+          public class StanDomainLock : MonoBehaviour {
+              void Awake() {
+                  string currentDomain = Application.absoluteURL;
+                  string[] allowedDomains = { "{{ALLOWED_DOMAINS}}" };
+                  
+                  bool isValid = false;
+                  foreach (string domain in allowedDomains) {
+                      if (currentDomain.Contains(domain)) {
+                          isValid = true;
+                          break;
+                      }
+                  }
+                  
+                  if (!isValid) {
+                      ShowPiracyScreen();
+                      Time.timeScale = 0;
+                  }
+              }
+              
+              void ShowPiracyScreen() {
+                  Debug.LogError("Unauthorized domain detected. Game disabled.");
+              }
+          }
+          EOF
+      
+      - name: Create StanAnalytics.cs
+        run: |
+          cat > stanstarter/Assets/_StanCore/Scripts/StanAnalytics.cs << 'EOF'
+          using UnityEngine;
+          using UnityEngine.Networking;
+          using System.Collections;
+          
+          public class StanAnalytics : MonoBehaviour {
+              void Start() {
+                  string domain = Application.absoluteURL;
+                  string projectId = "{{PROJECT_ID}}";
+                  StartCoroutine(PhoneHome(projectId, domain));
+              }
+              
+              IEnumerator PhoneHome(string id, string domain) {
+                  string url = $"https://api.stanlink.online/track?id={id}&domain={domain}";
+                  UnityWebRequest request = UnityWebRequest.Get(url);
+                  yield return request.SendWebRequest();
+              }
+          }
+          EOF
+      
+      - name: Create StanAdManager.cs
+        run: |
+          cat > stanstarter/Assets/_StanCore/Scripts/StanAdManager.cs << 'EOF'
+          using UnityEngine;
+          
+          public class StanAdManager : MonoBehaviour {
+              public static StanAdManager Instance;
+              
+              void Awake() {
+                  if (Instance == null) {
+                      Instance = this;
+                      DontDestroyOnLoad(gameObject);
+                  } else {
+                      Destroy(gameObject);
+                  }
+              }
+              
+              public void ShowInterstitial() {
+                  #if UNITY_WEBGL && !UNITY_EDITOR
+                  Application.ExternalCall("showAdsterraInterstitial");
+                  #endif
+              }
+              
+              public void ShowSocialBar() {
+                  #if UNITY_WEBGL && !UNITY_EDITOR
+                  Application.ExternalCall("showAdsterraSocialBar");
+                  #endif
+              }
+          }
+          EOF
+      
+      - name: Create StanWatermark.cs
+        run: |
+          cat > stanstarter/Assets/_StanCore/Scripts/StanWatermark.cs << 'EOF'
+          using UnityEngine;
+          using UnityEngine.UI;
+          
+          public class StanWatermark : MonoBehaviour {
+              void Start() {
+                  bool isPaidUser = {{IS_PAID}};
+                  
+                  if (!isPaidUser) {
+                      CreateWatermark();
+                  }
+              }
+              
+              void CreateWatermark() {
+                  GameObject canvas = new GameObject("StanWatermark");
+                  Canvas c = canvas.AddComponent<Canvas>();
+                  c.renderMode = RenderMode.ScreenSpaceOverlay;
+                  canvas.AddComponent<CanvasScaler>();
+                  canvas.AddComponent<GraphicRaycaster>();
+                  
+                  GameObject button = new GameObject("PlayOnStanButton");
+                  button.transform.SetParent(canvas.transform);
+                  RectTransform rt = button.AddComponent<RectTransform>();
+                  rt.anchorMin = new Vector2(1, 0);
+                  rt.anchorMax = new Vector2(1, 0);
+                  rt.pivot = new Vector2(1, 0);
+                  rt.anchoredPosition = new Vector2(-10, 10);
+                  rt.sizeDelta = new Vector2(120, 40);
+                  
+                  Button btn = button.AddComponent<Button>();
+                  btn.onClick.AddListener(() => {
+                      Application.OpenURL("https://games.stanlink.online");
+                  });
+                  
+                  GameObject text = new GameObject("Text");
+                  text.transform.SetParent(button.transform);
+                  Text t = text.AddComponent<Text>();
+                  t.text = "Play on Stan";
+                  t.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+                  t.fontSize = 14;
+                  t.alignment = TextAnchor.MiddleCenter;
+                  t.color = Color.white;
+                  RectTransform textRt = text.GetComponent<RectTransform>();
+                  textRt.anchorMin = Vector2.zero;
+                  textRt.anchorMax = Vector2.one;
+                  textRt.sizeDelta = Vector2.zero;
+              }
+          }
+          EOF
+      
+      - name: Create StanCore Prefab Placeholder
+        run: |
+          cat > stanstarter/Assets/_StanCore/Prefabs/StanCore.prefab << 'EOF'
+          %YAML 1.1
+          %TAG !u! tag:unity3d.com,2011:
+          --- !u!1 &1
+          GameObject:
+            m_ObjectHideFlags: 0
+            m_CorrespondingSourceObject: {fileID: 0}
+            m_PrefabInstance: {fileID: 0}
+            m_PrefabAsset: {fileID: 0}
+            serializedVersion: 6
+            m_Component:
+            - component: {fileID: 4}
+            - component: {fileID: 114}
+            - component: {fileID: 115}
+            - component: {fileID: 116}
+            - component: {fileID: 117}
+            m_Layer: 0
+            m_Name: StanCore
+            m_TagString: Untagged
+            m_Icon: {fileID: 0}
+            m_NavMeshLayer: 0
+            m_StaticEditorFlags: 0
+            m_IsActive: 1
+          EOF
+      
+      - name: Create stan-config.json
+        run: |
+          cat > stanstarter/Assets/_StanCore/Resources/stan-config.json << 'EOF'
+          {
+            "domains": ["{{ALLOWED_DOMAINS}}"],
+            "projectId": "{{PROJECT_ID}}",
+            "isPaid": {{IS_PAID}}
+          }
+          EOF
+      
+      - name: Create Packages manifest.json
+        run: |
+          cat > stanstarter/Packages/manifest.json << 'EOF'
+          {
+            "dependencies": {
+              "com.unity.render-pipelines.universal": "14.0.8",
+              "com.unity.inputsystem": "1.7.0",
+              "com.unity.textmeshpro": "3.0.6",
+              "com.unity.ugui": "1.0.0"
+            }
+          }
+          EOF
+      
+      - name: Create ProjectSettings files
+        run: |
+          mkdir -p stanstarter/ProjectSettings
+          
+          cat > stanstarter/ProjectSettings/ProjectVersion.txt << 'EOF'
+          m_EditorVersion: 2022.3.10f1
+          m_EditorVersionWithRevision: 2022.3.10f1 (ff3792e53c62)
+          EOF
+          
+          cat > stanstarter/ProjectSettings/ProjectSettings.asset << 'EOF'
+          %YAML 1.1
+          %TAG !u! tag:unity3d.com,2011:
+          --- !u!129 &1
+          PlayerSettings:
+            m_ObjectHideFlags: 0
+            serializedVersion: 23
+            productName: StanGame
+            companyName: StanLink
+            cloudProjectId: 
+            defaultCursor: {fileID: 0}
+            cursorHotspot: {x: 0, y: 0}
+            m_SplashScreenBackgroundColor: {r: 0.13725491, g: 0.12156863, b: 0.1254902, a: 1}
+            WebGL:
+              memorySize: 512
+              exceptionSupport: 1
+              compressionFormat: 1
+          EOF
+      
+      - name: Generate README.md
+        run: |
+          cat > stanstarter/README.md << 'EOF'
+          # 🎮 StanStarter - Unity Base Game Template
+          
+          **The Sacred Core** - Protected foundation for all Stan-generated Unity games.
+          
+          ## 🔒 What is StanStarter?
+          
+          StanStarter is the **protected base template** that every Stan game builds upon. It contains the core systems that ensure games work correctly on Stan's platform while preventing unauthorized distribution.
+          
+          ## 📦 What's Inside?
+          
+          ### `Assets/_StanCore/` (NEVER OVERWRITTEN)
+          
+          This folder contains Stan's protected systems:
+          
+          - **StanDomainLock.cs** - Kill switch that prevents games from running on unauthorized domains
+          - **StanAnalytics.cs** - Phone-home tracking to monitor where games are played
+          - **StanAdManager.cs** - Ad injection points for Adsterra integration
+          - **StanWatermark.cs** - "Play on Stan" branding overlay (free tier only)
+          
+          ### `Packages/manifest.json`
+          
+          Pre-configured Unity packages:
+          - Universal Render Pipeline (URP)
+          - Input System
+          - TextMeshPro
+          - UI Toolkit
+          
+          ### `ProjectSettings/`
+          
+          All Unity project configuration files for consistent builds.
+          
+          ## 🚀 How Stan Uses This
+          
+          1. **Clone StanStarter** → Creates new project from this template
+          2. **Import Templates** → Adds game-specific templates to `Assets/StanTemplates/`
+          3. **Generate Code** → Stan AI writes game code to `Assets/Scripts/`
+          4. **Inject Config** → GitHub Actions replaces placeholders:
+             - `{{PROJECT_ID}}` → Actual project ID
+             - `{{IS_PAID}}` → true/false based on user tier
+             - `{{ALLOWED_DOMAINS}}` → Whitelisted domains
+          5. **Build WebGL** → Unity builds the complete game
+          6. **Deploy to R2** → Uploaded to `games.stanlink.online/{project_id}`
+          
+          ## 🔐 Security Features
+          
+          ### Domain Lock
+          Games only run on whitelisted domains. If someone downloads your game files and hosts them elsewhere, the domain lock kills the game immediately.
+          
+          ### Origin Guard
+          Cloudflare Worker protects R2 assets - only serves files to whitelisted domains.
+          
+          ### Analytics Tracking
+          Every game play is tracked with domain information, so you know where your game is being played.
+          
+          ### WASM Obfuscation
+          Unity's WebGL build produces obfuscated WASM that's nearly impossible to decompile.
+          
+          ## 🎯 Result
+          
+          **Game files can be downloaded, but they're USELESS outside your domain!** 🔒✨
+          
+          ## 📝 Placeholders
+          
+          These placeholders are replaced during build:
+          
+          - `{{PROJECT_ID}}` - Unique project identifier
+          - `{{IS_PAID}}` - Boolean flag for paid/free tier
+          - `{{ALLOWED_DOMAINS}}` - Comma-separated list of authorized domains
+          
+          ## 🚫 What NOT to Modify
+          
+          **NEVER modify files in `Assets/_StanCore/`** - These are Stan's protected systems and will break domain locking, analytics, and ad integration.
+          
+          ## 📚 Learn More
+          
+          - [Stan Documentation](https://docs.stanlink.online)
+          - [Stan Dashboard](https://dashboard.stanlink.online)
+          - [Stan IDE](https://ide.stan.stanlink.online)
+          
+          ---
+          
+          **Built with ❤️ by StanLink Inc.**
+          EOF
+      
+      - name: Clone stanstarter repo
+        run: |
+          git config --global user.name "Stan Bot"
+          git config --global user.email "bot@stanlink.online"
+          git clone https://${{ secrets.ACCESS_TOKEN }}@github.com/StaNLink-Inc/stanstarter.git stanstarter-repo
+      
+      - name: Copy files to repo
+        run: |
+          rm -rf stanstarter-repo/*
+          cp -r stanstarter/* stanstarter-repo/
+          cp stanstarter/README.md stanstarter-repo/
+      
+      - name: Commit and push
+        run: |
+          cd stanstarter-repo
+          git add .
+          git commit -m "🎮 Update StanStarter base game template" || echo "No changes to commit"
+          git push origin main
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+      
+      - name: Success notification
+        run: |
+          echo "✅ StanStarter successfully built and pushed!"
+          echo "📦 Repository: https://github.com/StaNLink-Inc/stanstarter"

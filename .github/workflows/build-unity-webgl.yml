@@ -19,6 +19,11 @@ on:
         description: 'URL-friendly slug for deployment'
         required: true
         type: string
+      is_paid:
+        description: 'Is paid user (true/false)'
+        required: false
+        type: string
+        default: 'false'
 
 jobs:
   build-and-deploy:

@@ -1,0 +1,120 @@
+name: Onboard New Project
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: 'Project ID'
+        required: true
+      template_package:
+        description: 'Unity package name (e.g., racing-template.unitypackage) or empty for no template'
+        required: false
+        default: ''
+      is_paid:
+        description: 'Is paid user (true/false)'
+        required: true
+        default: 'false'
+      allowed_domains:
+        description: 'Comma-separated allowed domains'
+        required: true
+        default: 'games.stanlink.online'
+
+jobs:
+  onboard-project:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout unity-build-template
+        uses: actions/checkout@v3
+      
+      - name: Clone stanstarter base
+        run: |
+          git clone https://github.com/StaNLink-Inc/stanstarter.git project-temp
+          mv project-temp projects/${{ inputs.project_id }}
+          rm -rf projects/${{ inputs.project_id }}/.git
+      
+      - name: Download template from R2 (if specified)
+        if: ${{ inputs.template_package != '' }}
+        run: |
+          # Download .unitypackage from R2
+          curl -X GET "https://stan-templates.stanleyisaac134.workers.dev/${{ inputs.template_package }}" \
+            -H "Authorization: Bearer ${{ secrets.R2_ACCESS_TOKEN }}" \
+            -o template.unitypackage
+          
+          # Create StanTemplates directory
+          mkdir -p projects/${{ inputs.project_id }}/Assets/StanTemplates
+          
+          # Extract .unitypackage to StanTemplates (Unity will import on first open)
+          # For now, just place the package file - Unity Editor will handle import
+          mv template.unitypackage projects/${{ inputs.project_id }}/Assets/StanTemplates/${{ inputs.template_package }}
+      
+      - name: Inject project configuration
+        run: |
+          # Replace placeholders in StanAnalytics.cs
+          sed -i 's/{{PROJECT_ID}}/${{ inputs.project_id }}/g' \
+            projects/${{ inputs.project_id }}/Assets/_StanCore/Scripts/StanAnalytics.cs
+          
+          # Replace placeholders in StanWatermark.cs
+          sed -i 's/{{IS_PAID}}/${{ inputs.is_paid }}/g' \
+            projects/${{ inputs.project_id }}/Assets/_StanCore/Scripts/StanWatermark.cs
+          
+          # Replace placeholders in StanDomainLock.cs
+          sed -i 's/{{ALLOWED_DOMAINS}}/${{ inputs.allowed_domains }}/g' \
+            projects/${{ inputs.project_id }}/Assets/_StanCore/Scripts/StanDomainLock.cs
+          
+          # Update stan-config.json
+          cat > projects/${{ inputs.project_id }}/Assets/_StanCore/Resources/stan-config.json << EOF
+          {
+            "domains": ["${{ inputs.allowed_domains }}"],
+            "projectId": "${{ inputs.project_id }}",
+            "isPaid": ${{ inputs.is_paid }}
+          }
+          EOF
+      
+      - name: Create project metadata
+        run: |
+          cat > projects/${{ inputs.project_id }}/stan-project.json << EOF
+          {
+            "projectId": "${{ inputs.project_id }}",
+            "template": "${{ inputs.template_package }}",
+            "createdAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "isPaid": ${{ inputs.is_paid }},
+            "domains": ["${{ inputs.allowed_domains }}"]
+          }
+          EOF
+      
+      - name: Commit to StaNLink-Inc/projects repo
+        run: |
+          git config --global user.name "Stan Bot"
+          git config --global user.email "bot@stanlink.online"
+          
+          # Clone projects repo
+          git clone https://${{ secrets.ACCESS_TOKEN }}@github.com/StaNLink-Inc/projects.git projects-repo
+          
+          # Copy project folder
+          mkdir -p projects-repo/${{ inputs.project_id }}
+          cp -r projects/${{ inputs.project_id }}/* projects-repo/${{ inputs.project_id }}/
+          
+          # Commit and push
+          cd projects-repo
+          git add .
+          git commit -m "🎮 Onboard project ${{ inputs.project_id }}" || echo "No changes"
+          git push origin main
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+      
+      - name: Notify backend
+        run: |
+          curl -X POST "https://stan-backend.stanleyisaac134.workers.dev/api/projects/${{ inputs.project_id }}/onboarded" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "status": "onboarded",
+              "template": "${{ inputs.template_package }}",
+              "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+            }'
+      
+      - name: Success
+        run: |
+          echo "✅ Project ${{ inputs.project_id }} onboarded successfully!"
+          echo "📦 Template: ${{ inputs.template_package }}"
+          echo "🔗 Repository: https://github.com/StaNLink-Inc/projects/tree/main/${{ inputs.project_id }}"

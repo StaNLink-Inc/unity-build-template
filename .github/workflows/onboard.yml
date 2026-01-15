@@ -29,41 +29,48 @@ jobs:
       
       - name: Clone stanstarter base
         run: |
-          git clone https://github.com/StaNLink-Inc/stanstarter.git project-temp
-          mv project-temp projects/${{ inputs.project_id }}
-          rm -rf projects/${{ inputs.project_id }}/.git
+          git clone https://github.com/StaNLink-Inc/stanstarter.git project
+          rm -rf project/.git
       
-      - name: Download template from R2 (if specified)
+      - name: Setup Unity
+        uses: game-ci/unity-builder@v4
+        with:
+          unityVersion: 2022.3.10f1
+      
+      - name: Download and import template (if specified)
         if: ${{ inputs.template_package != '' }}
         run: |
           # Download .unitypackage from R2
           curl -X GET "https://stan-templates.stanleyisaac134.workers.dev/${{ inputs.template_package }}" \
-            -H "Authorization: Bearer ${{ secrets.R2_ACCESS_TOKEN }}" \
             -o template.unitypackage
           
-          # Create StanTemplates directory
-          mkdir -p projects/${{ inputs.project_id }}/Assets/StanTemplates
+          # Import using Unity CLI
+          unity-editor \
+            -quit \
+            -batchmode \
+            -nographics \
+            -projectPath ./project \
+            -importPackage $(pwd)/template.unitypackage \
+            -logFile -
           
-          # Extract .unitypackage to StanTemplates (Unity will import on first open)
-          # For now, just place the package file - Unity Editor will handle import
-          mv template.unitypackage projects/${{ inputs.project_id }}/Assets/StanTemplates/${{ inputs.template_package }}
+          echo "✅ Template imported to Assets/"
       
       - name: Inject project configuration
         run: |
           # Replace placeholders in StanAnalytics.cs
           sed -i 's/{{PROJECT_ID}}/${{ inputs.project_id }}/g' \
-            projects/${{ inputs.project_id }}/Assets/_StanCore/Scripts/StanAnalytics.cs
+            project/Assets/_StanCore/Scripts/StanAnalytics.cs
           
           # Replace placeholders in StanWatermark.cs
           sed -i 's/{{IS_PAID}}/${{ inputs.is_paid }}/g' \
-            projects/${{ inputs.project_id }}/Assets/_StanCore/Scripts/StanWatermark.cs
+            project/Assets/_StanCore/Scripts/StanWatermark.cs
           
           # Replace placeholders in StanDomainLock.cs
           sed -i 's/{{ALLOWED_DOMAINS}}/${{ inputs.allowed_domains }}/g' \
-            projects/${{ inputs.project_id }}/Assets/_StanCore/Scripts/StanDomainLock.cs
+            project/Assets/_StanCore/Scripts/StanDomainLock.cs
           
           # Update stan-config.json
-          cat > projects/${{ inputs.project_id }}/Assets/_StanCore/Resources/stan-config.json << EOF
+          cat > project/Assets/_StanCore/Resources/stan-config.json << EOF
           {
             "domains": ["${{ inputs.allowed_domains }}"],
             "projectId": "${{ inputs.project_id }}",
@@ -73,7 +80,7 @@ jobs:
       
       - name: Create project metadata
         run: |
-          cat > projects/${{ inputs.project_id }}/stan-project.json << EOF
+          cat > project/stan-project.json << EOF
           {
             "projectId": "${{ inputs.project_id }}",
             "template": "${{ inputs.template_package }}",
@@ -83,25 +90,32 @@ jobs:
           }
           EOF
       
-      - name: Commit to StaNLink-Inc/projects repo
+      - name: Upload project to R2
         run: |
-          git config --global user.name "Stan Bot"
-          git config --global user.email "bot@stanlink.online"
+          # Install rclone
+          curl https://rclone.org/install.sh | sudo bash
           
-          # Clone projects repo
-          git clone https://${{ secrets.ACCESS_TOKEN }}@github.com/StaNLink-Inc/projects.git projects-repo
+          # Configure rclone for Cloudflare R2
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf << EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          endpoint = https://c4bfd8b7429b61b9122497ec401f7693.r2.cloudflarestorage.com
+          acl = private
+          EOF
           
-          # Copy project folder
-          mkdir -p projects-repo/${{ inputs.project_id }}
-          cp -r projects/${{ inputs.project_id }}/* projects-repo/${{ inputs.project_id }}/
+          # Upload entire project to R2 stan-projects bucket
+          rclone sync ./project r2:stan-projects/${{ inputs.project_id }} \
+            --progress \
+            --exclude '.git/**' \
+            --exclude 'Library/**' \
+            --exclude 'Temp/**' \
+            --exclude 'Logs/**'
           
-          # Commit and push
-          cd projects-repo
-          git add .
-          git commit -m "🎮 Onboard project ${{ inputs.project_id }}" || echo "No changes"
-          git push origin main
-        env:
-          GITHUB_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+          echo "✅ Project uploaded to R2: stan-projects/${{ inputs.project_id }}"
       
       - name: Notify backend
         run: |
@@ -117,4 +131,4 @@ jobs:
         run: |
           echo "✅ Project ${{ inputs.project_id }} onboarded successfully!"
           echo "📦 Template: ${{ inputs.template_package }}"
-          echo "🔗 Repository: https://github.com/StaNLink-Inc/projects/tree/main/${{ inputs.project_id }}"
+          echo "☁️ Location: R2 stan-projects/${{ inputs.project_id }}"

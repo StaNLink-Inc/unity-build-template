@@ -1,0 +1,188 @@
+name: Preflight Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: 'Project ID'
+        required: true
+      slug:
+        description: 'Project slug'
+        required: true
+      callback_url:
+        description: 'Backend callback URL'
+        required: true
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    
+    steps:
+      - name: 🚀 Preflight Started
+        run: |
+          curl -X POST "${{ inputs.callback_url }}/api/build/preflight-status" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.STAN_API_KEY }}" \
+            -d '{
+              "projectId": "${{ inputs.project_id }}",
+              "status": "running",
+              "message": "Running preflight checks..."
+            }'
+      
+      - name: 📥 Download Project from R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
+          AWS_EC2_METADATA_DISABLED: true
+        run: |
+          # Download project files from R2
+          aws s3 sync s3://stan-projects/${{ inputs.slug }}/ ./project/ \
+            --endpoint-url ${{ secrets.R2_ENDPOINT }} \
+            --region auto
+      
+      - name: 🔍 Check Project Structure
+        id: structure_check
+        run: |
+          echo "Checking Unity project structure..."
+          
+          # Check for required folders
+          if [ ! -d "project/Assets" ]; then
+            echo "error=Missing Assets folder" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          if [ ! -d "project/Assets/Scripts" ]; then
+            echo "error=Missing Assets/Scripts folder" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Check for at least one scene
+          if [ ! -d "project/Assets/Scenes" ] || [ -z "$(ls -A project/Assets/Scenes/*.unity 2>/dev/null)" ]; then
+            echo "error=No Unity scenes found in Assets/Scenes/" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "✅ Project structure valid"
+      
+      - name: 🔍 Validate C# Scripts
+        id: script_check
+        run: |
+          echo "Validating C# scripts..."
+          
+          # Find all .cs files
+          cs_files=$(find project/Assets/Scripts -name "*.cs" 2>/dev/null || echo "")
+          
+          if [ -z "$cs_files" ]; then
+            echo "error=No C# scripts found" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Basic syntax check (look for common errors)
+          error_found=false
+          error_details=""
+          
+          while IFS= read -r file; do
+            # Check for unclosed braces
+            open_braces=$(grep -o '{' "$file" | wc -l)
+            close_braces=$(grep -o '}' "$file" | wc -l)
+            
+            if [ "$open_braces" -ne "$close_braces" ]; then
+              error_found=true
+              error_details="$error_details\n$(basename $file): Mismatched braces (open: $open_braces, close: $close_braces)"
+            fi
+            
+            # Check for basic Unity requirements
+            if grep -q "MonoBehaviour" "$file"; then
+              if ! grep -q "using UnityEngine;" "$file"; then
+                error_found=true
+                error_details="$error_details\n$(basename $file): Missing 'using UnityEngine;'"
+              fi
+            fi
+          done <<< "$cs_files"
+          
+          if [ "$error_found" = true ]; then
+            echo "error=Script validation failed:$error_details" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "✅ All scripts valid"
+      
+      - name: 🔍 Check Dependencies
+        id: dependency_check
+        run: |
+          echo "Checking Unity dependencies..."
+          
+          # Check if Packages/manifest.json exists
+          if [ ! -f "project/Packages/manifest.json" ]; then
+            echo "error=Missing Packages/manifest.json" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Validate JSON
+          if ! jq empty project/Packages/manifest.json 2>/dev/null; then
+            echo "error=Invalid manifest.json format" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "✅ Dependencies valid"
+      
+      - name: 🔍 Estimate Build Size
+        id: size_check
+        run: |
+          echo "Estimating build size..."
+          
+          # Calculate project size
+          size_kb=$(du -sk project | cut -f1)
+          size_mb=$((size_kb / 1024))
+          
+          echo "Project size: ${size_mb}MB"
+          echo "size_mb=$size_mb" >> $GITHUB_OUTPUT
+          
+          # Warn if too large
+          if [ $size_mb -gt 500 ]; then
+            echo "⚠️ Large project detected (${size_mb}MB). Build may take longer."
+          fi
+      
+      - name: ✅ Preflight Passed
+        if: success()
+        run: |
+          curl -X POST "${{ inputs.callback_url }}/api/build/preflight-status" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.STAN_API_KEY }}" \
+            -d '{
+              "projectId": "${{ inputs.project_id }}",
+              "status": "passed",
+              "message": "All preflight checks passed!",
+              "details": {
+                "projectSize": "${{ steps.size_check.outputs.size_mb }}MB",
+                "estimatedBuildTime": "10-30 minutes"
+              }
+            }'
+      
+      - name: ❌ Preflight Failed
+        if: failure()
+        run: |
+          # Collect all errors
+          structure_error="${{ steps.structure_check.outputs.error }}"
+          script_error="${{ steps.script_check.outputs.error }}"
+          dependency_error="${{ steps.dependency_check.outputs.error }}"
+          
+          error_message="Preflight check failed:"
+          [ -n "$structure_error" ] && error_message="$error_message\n- $structure_error"
+          [ -n "$script_error" ] && error_message="$error_message\n- $script_error"
+          [ -n "$dependency_error" ] && error_message="$error_message\n- $dependency_error"
+          
+          curl -X POST "${{ inputs.callback_url }}/api/build/preflight-status" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.STAN_API_KEY }}" \
+            -d "{
+              \"projectId\": \"${{ inputs.project_id }}\",
+              \"status\": \"failed\",
+              \"message\": \"$error_message\",
+              \"errors\": {
+                \"structure\": \"$structure_error\",
+                \"scripts\": \"$script_error\",
+                \"dependencies\": \"$dependency_error\"
+              }
+            }"

@@ -34,8 +34,12 @@ jobs:
       
       - name: Setup Unity
         uses: game-ci/unity-builder@v4
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
           unityVersion: 2022.3.10f1
+          gitSemVer: false
       
       - name: Download and import template (if specified)
         if: ${{ inputs.template_package != '' }}

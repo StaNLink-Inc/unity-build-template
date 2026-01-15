@@ -96,20 +96,21 @@ function injectAds() {
     const analyticsCode = STAN_ANALYTICS.replace('{{PROJECT_ID}}', projectId);
     html = html.replace('</head>', `${analyticsCode}\n</head>`);
     
-    // Inject ads and watermark (free tier only)
+    // Inject Adsterra ads (ALWAYS - for all users)
+    console.log('💰 Injecting Adsterra ads');
+    
+    // Inject interstitial ad
+    html = html.replace('</body>', `${ADSTERRA_INTERSTITIAL}\n</body>`);
+    
+    // Inject social bar
+    html = html.replace('</body>', `${ADSTERRA_SOCIAL_BAR}\n</body>`);
+    
+    // Inject Stan watermark (free tier only)
     if (!isPaid) {
-        console.log('💰 Injecting Adsterra ads (free tier)');
-        
-        // Inject interstitial ad
-        html = html.replace('</body>', `${ADSTERRA_INTERSTITIAL}\n</body>`);
-        
-        // Inject social bar
-        html = html.replace('</body>', `${ADSTERRA_SOCIAL_BAR}\n</body>`);
-        
-        // Inject Stan watermark
+        console.log('🎨 Injecting Stan watermark (free tier)');
         html = html.replace('</body>', `${STAN_WATERMARK}\n</body>`);
     } else {
-        console.log('✨ Premium user - no ads injected');
+        console.log('✨ Premium user - no watermark');
     }
     
     // Write modified HTML

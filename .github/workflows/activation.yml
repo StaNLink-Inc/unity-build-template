@@ -7,14 +7,12 @@ jobs:
   activation:
     runs-on: ubuntu-latest
     steps:
-      # Request manual activation file
-      - name: Request manual activation file
-        id: getManualLicenseFile
-        uses: game-ci/unity-request-activation-file@v2
-        with:
-          unityVersion: 2022.3.10f1
+      - name: Checkout repository
+        uses: actions/checkout@v4
       
-      # Upload artifact (Unity activation file)
+      - name: Request manual activation file
+        uses: game-ci/unity-request-activation-file@v2
+      
       - name: Expose as artifact
         uses: actions/upload-artifact@v4
         with:

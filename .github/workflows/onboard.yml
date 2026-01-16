@@ -17,7 +17,7 @@ on:
       allowed_domains:
         description: 'Comma-separated allowed domains'
         required: true
-        default: 'games.stanlink.online'
+        default: 'games.stanlink.online,kids.games.stanlink.online'
 
 jobs:
   onboard-project:

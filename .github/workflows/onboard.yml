@@ -39,6 +39,14 @@ jobs:
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
       
+      - name: Install Unity Editor
+        uses: game-ci/unity-builder@v4
+        with:
+          targetPlatform: WebGL
+          unityVersion: 2019.2.11f1
+          buildMethod: ''
+        continue-on-error: true
+      
       - name: Download and import template (if specified)
         if: ${{ inputs.template_package != '' }}
         env:

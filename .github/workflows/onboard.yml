@@ -45,7 +45,11 @@ jobs:
           targetPlatform: WebGL
           unityVersion: 2019.2.11f1
           buildMethod: ''
-        continue-on-error: true
+          allowDirtyBuild: true
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
       
       - name: Download and import template (if specified)
         if: ${{ inputs.template_package != '' }}
@@ -62,8 +66,17 @@ jobs:
           echo "📥 Downloading template from: $FULL_URL"
           curl -L -f "$FULL_URL" -o template.unitypackage
           
-          # Import using Unity CLI (use full path from game-ci)
-          /opt/unity/Editor/Unity \
+          # Find Unity installation from unity-builder
+          UNITY_PATH=$(find /opt -name Unity -type f 2>/dev/null | head -n 1)
+          if [ -z "$UNITY_PATH" ]; then
+            echo "❌ Unity not found after installation"
+            exit 1
+          fi
+          
+          echo "Using Unity at: $UNITY_PATH"
+          
+          # Import using Unity CLI
+          "$UNITY_PATH" \
             -quit \
             -batchmode \
             -nographics \

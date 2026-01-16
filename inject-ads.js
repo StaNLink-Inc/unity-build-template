@@ -18,16 +18,7 @@ const ADSTERRA_INTERSTITIAL = `
 
 const ADSTERRA_SOCIAL_BAR = `
 <!-- Adsterra Social Bar -->
-<script type="text/javascript">
-    atOptions = {
-        'key' : 'YOUR_SOCIAL_BAR_KEY_HERE',
-        'format' : 'iframe',
-        'height' : 90,
-        'width' : 728,
-        'params' : {}
-    };
-    document.write('<scr' + 'ipt type="text/javascript" src="//www.topcreativeformat.com/YOUR_SOCIAL_BAR_KEY_HERE/invoke.js"></scr' + 'ipt>');
-</script>
+<script src="https://pl28495265.effectivegatecpm.com/c2/a3/01/c2a301a8c7d21f09d1f08b64184fb098.js"></script>
 `;
 
 const STAN_WATERMARK = `

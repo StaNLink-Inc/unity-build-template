@@ -54,8 +54,8 @@ jobs:
           echo "📥 Downloading template from: $FULL_URL"
           curl -L -f "$FULL_URL" -o template.unitypackage
           
-          # Import using Unity CLI
-          unity-editor \
+          # Import using Unity CLI (use full path from game-ci)
+          /opt/unity/Editor/Unity \
             -quit \
             -batchmode \
             -nographics \

@@ -1,0 +1,126 @@
+name: Asset Relocator
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: 'Project ID'
+        required: true
+      relocations:
+        description: 'JSON array of relocation objects'
+        required: true
+
+jobs:
+  relocate-assets:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Setup rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf << EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          endpoint = https://c4bfd8b7429b61b9122497ec401f7693.r2.cloudflarestorage.com
+          acl = private
+          EOF
+      
+      - name: Process relocations
+        run: |
+          echo '${{ inputs.relocations }}' > relocations.json
+          
+          # Parse and process each relocation
+          jq -c '.[]' relocations.json | while read relocation; do
+            SOURCE=$(echo $relocation | jq -r '.source_path')
+            DEST=$(echo $relocation | jq -r '.destination_path')
+            ASSET_TYPE=$(echo $relocation | jq -r '.asset_type')
+            
+            echo "📦 Relocating: $SOURCE → $DEST"
+            
+            # Download from stan-assets
+            rclone copy "r2:$SOURCE" ./temp/ --progress
+            FILENAME=$(basename "$SOURCE")
+            
+            # Upload to project destination
+            DEST_DIR=$(dirname "$DEST")
+            rclone copy "./temp/$FILENAME" "r2:stan-projects/${{ inputs.project_id }}/$DEST_DIR/" --progress
+            
+            # Generate Unity .meta file
+            GUID=$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]')
+            META_CONTENT=""
+            
+            case $ASSET_TYPE in
+              "texture"|"sprite")
+                META_CONTENT="fileFormatVersion: 2
+guid: $GUID
+TextureImporter:
+  internalIDToNameTable: []
+  externalObjects: {}
+  serializedVersion: 11
+  mipmaps:
+    mipMapMode: 0
+    enableMipMap: 1
+  textureType: 0
+  textureShape: 1
+  sRGBTexture: 1"
+                ;;
+              "model")
+                META_CONTENT="fileFormatVersion: 2
+guid: $GUID
+ModelImporter:
+  serializedVersion: 20
+  internalIDToNameTable: []
+  externalObjects: {}
+  materials:
+    materialImportMode: 1
+  animations:
+    legacyGenerateAnimations: 4"
+                ;;
+              "audio")
+                META_CONTENT="fileFormatVersion: 2
+guid: $GUID
+AudioImporter:
+  externalObjects: {}
+  serializedVersion: 6
+  defaultSettings:
+    loadType: 0
+    sampleRateSetting: 0
+    compressionFormat: 1"
+                ;;
+              "script")
+                META_CONTENT="fileFormatVersion: 2
+guid: $GUID
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}"
+                ;;
+              *)
+                META_CONTENT="fileFormatVersion: 2
+guid: $GUID
+DefaultImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: "
+                ;;
+            esac
+            
+            # Upload .meta file
+            echo "$META_CONTENT" > "./temp/$FILENAME.meta"
+            rclone copy "./temp/$FILENAME.meta" "r2:stan-projects/${{ inputs.project_id }}/$DEST_DIR/" --progress
+            
+            rm -f "./temp/$FILENAME" "./temp/$FILENAME.meta"
+            echo "✅ Relocated: $DEST"
+          done
+      
+      - name: Log completion
+        run: |
+          RELOCATION_COUNT=$(echo '${{ inputs.relocations }}' | jq 'length')
+          echo "✅ Successfully relocated $RELOCATION_COUNT assets to project ${{ inputs.project_id }}"

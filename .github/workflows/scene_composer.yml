@@ -1,0 +1,140 @@
+name: Scene Composer
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: 'Project ID'
+        required: true
+      scene_path:
+        description: 'Scene path (e.g., Assets/Scenes/MainGame.unity)'
+        required: true
+      operations:
+        description: 'JSON array of scene operations'
+        required: true
+
+jobs:
+  compose-scene:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Setup rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf << EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          endpoint = https://c4bfd8b7429b61b9122497ec401f7693.r2.cloudflarestorage.com
+          acl = private
+          EOF
+      
+      - name: Download project
+        run: |
+          rclone copy "r2:stan-projects/${{ inputs.project_id }}" ./project --progress
+      
+      - name: Setup Unity
+        uses: game-ci/unity-builder@v4
+        with:
+          unityVersion: 2022.3.10f1
+      
+      - name: Apply scene operations
+        run: |
+          cat > scene_composer.cs << 'EOF'
+          using UnityEngine;
+          using UnityEditor;
+          using UnityEditor.SceneManagement;
+          using System.Collections.Generic;
+          
+          public class SceneComposer
+          {
+              public static void Execute()
+              {
+                  var operations = System.Environment.GetEnvironmentVariable("OPERATIONS");
+                  var scenePath = System.Environment.GetEnvironmentVariable("SCENE_PATH");
+                  
+                  var scene = EditorSceneManager.OpenScene(scenePath);
+                  var ops = JsonUtility.FromJson<OperationList>(operations);
+                  
+                  foreach (var op in ops.operations)
+                  {
+                      switch (op.type)
+                      {
+                          case "add_gameobject":
+                              var go = new GameObject(op.name);
+                              if (op.parent != null)
+                              {
+                                  var parent = GameObject.Find(op.parent);
+                                  if (parent) go.transform.SetParent(parent.transform);
+                              }
+                              if (op.position != null) go.transform.position = op.position;
+                              if (op.rotation != null) go.transform.rotation = Quaternion.Euler(op.rotation);
+                              if (op.scale != null) go.transform.localScale = op.scale;
+                              break;
+                              
+                          case "add_prefab":
+                              var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(op.prefab_path);
+                              var instance = PrefabUtility.InstantiatePrefab(prefab) as GameObject;
+                              if (op.position != null) instance.transform.position = op.position;
+                              if (op.rotation != null) instance.transform.rotation = Quaternion.Euler(op.rotation);
+                              break;
+                              
+                          case "add_component":
+                              var target = GameObject.Find(op.target);
+                              if (target)
+                              {
+                                  var componentType = System.Type.GetType(op.component_type);
+                                  target.AddComponent(componentType);
+                              }
+                              break;
+                      }
+                  }
+                  
+                  EditorSceneManager.SaveScene(scene);
+              }
+          }
+          
+          [System.Serializable]
+          public class OperationList { public List<Operation> operations; }
+          
+          [System.Serializable]
+          public class Operation
+          {
+              public string type;
+              public string name;
+              public string parent;
+              public Vector3 position;
+              public Vector3 rotation;
+              public Vector3 scale;
+              public string prefab_path;
+              public string target;
+              public string component_type;
+          }
+          EOF
+          
+          mkdir -p ./project/Assets/Editor
+          mv scene_composer.cs ./project/Assets/Editor/
+          
+          export OPERATIONS='${{ inputs.operations }}'
+          export SCENE_PATH='${{ inputs.scene_path }}'
+          
+          unity-editor \
+            -quit \
+            -batchmode \
+            -nographics \
+            -projectPath ./project \
+            -executeMethod SceneComposer.Execute \
+            -logFile -
+      
+      - name: Upload modified project
+        run: |
+          rclone sync ./project "r2:stan-projects/${{ inputs.project_id }}" \
+            --progress \
+            --exclude 'Library/**' \
+            --exclude 'Temp/**' \
+            --exclude 'Logs/**'
+          
+          echo "✅ Scene ${{ inputs.scene_path }} composed successfully"

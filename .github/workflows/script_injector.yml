@@ -1,0 +1,74 @@
+name: Script Injector
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: 'Project ID'
+        required: true
+      scripts:
+        description: 'JSON array of script objects'
+        required: true
+
+jobs:
+  inject-scripts:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Setup rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf << EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          endpoint = https://c4bfd8b7429b61b9122497ec401f7693.r2.cloudflarestorage.com
+          acl = private
+          EOF
+      
+      - name: Process scripts
+        run: |
+          echo '${{ inputs.scripts }}' > scripts.json
+          
+          jq -c '.[]' scripts.json | while read script; do
+            SCRIPT_PATH=$(echo $script | jq -r '.path')
+            SCRIPT_CONTENT=$(echo $script | jq -r '.content')
+            
+            echo "📝 Creating script: $SCRIPT_PATH"
+            
+            # Create script file locally
+            mkdir -p "./temp/$(dirname "$SCRIPT_PATH")"
+            echo "$SCRIPT_CONTENT" > "./temp/$SCRIPT_PATH"
+            
+            # Generate .meta file
+            GUID=$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]')
+            cat > "./temp/$SCRIPT_PATH.meta" << EOF
+          fileFormatVersion: 2
+          guid: $GUID
+          MonoImporter:
+            externalObjects: {}
+            serializedVersion: 2
+            defaultReferences: []
+            executionOrder: 0
+            icon: {instanceID: 0}
+            userData: 
+            assetBundleName: 
+            assetBundleVariant: 
+          EOF
+            
+            # Upload to project
+            SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
+            rclone copy "./temp/$SCRIPT_PATH" "r2:stan-projects/${{ inputs.project_id }}/$SCRIPT_DIR/" --progress
+            rclone copy "./temp/$SCRIPT_PATH.meta" "r2:stan-projects/${{ inputs.project_id }}/$SCRIPT_DIR/" --progress
+            
+            rm -rf "./temp/$SCRIPT_PATH" "./temp/$SCRIPT_PATH.meta"
+            echo "✅ Injected: $SCRIPT_PATH"
+          done
+      
+      - name: Log completion
+        run: |
+          SCRIPT_COUNT=$(echo '${{ inputs.scripts }}' | jq 'length')
+          echo "✅ Successfully injected $SCRIPT_COUNT scripts into project ${{ inputs.project_id }}"

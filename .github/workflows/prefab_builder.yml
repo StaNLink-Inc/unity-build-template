@@ -1,0 +1,166 @@
+name: Prefab Builder
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: 'Project ID'
+        required: true
+      prefabs:
+        description: 'JSON array of prefab definitions'
+        required: true
+
+jobs:
+  build-prefabs:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Setup rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf << EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          endpoint = https://c4bfd8b7429b61b9122497ec401f7693.r2.cloudflarestorage.com
+          acl = private
+          EOF
+      
+      - name: Download project
+        run: |
+          rclone copy "r2:stan-projects/${{ inputs.project_id }}" ./project --progress
+      
+      - name: Setup Unity
+        uses: game-ci/unity-builder@v4
+        with:
+          unityVersion: 2022.3.10f1
+      
+      - name: Build prefabs
+        run: |
+          cat > prefab_builder.cs << 'EOF'
+          using UnityEngine;
+          using UnityEditor;
+          using System.Collections.Generic;
+          
+          public class PrefabBuilder
+          {
+              public static void Execute()
+              {
+                  var prefabsJson = System.Environment.GetEnvironmentVariable("PREFABS");
+                  var prefabs = JsonUtility.FromJson<PrefabList>(prefabsJson);
+                  
+                  foreach (var prefabDef in prefabs.prefabs)
+                  {
+                      var root = new GameObject(prefabDef.name);
+                      
+                      foreach (var component in prefabDef.components)
+                      {
+                          var componentType = System.Type.GetType(component.type);
+                          var comp = root.AddComponent(componentType);
+                          
+                          if (component.properties != null)
+                          {
+                              foreach (var prop in component.properties)
+                              {
+                                  var field = componentType.GetField(prop.name);
+                                  if (field != null)
+                                  {
+                                      field.SetValue(comp, ParseValue(prop.value, field.FieldType));
+                                  }
+                              }
+                          }
+                      }
+                      
+                      foreach (var child in prefabDef.children)
+                      {
+                          var childObj = new GameObject(child.name);
+                          childObj.transform.SetParent(root.transform);
+                          if (child.position != null) childObj.transform.localPosition = child.position;
+                          if (child.rotation != null) childObj.transform.localRotation = Quaternion.Euler(child.rotation);
+                          if (child.scale != null) childObj.transform.localScale = child.scale;
+                          
+                          if (child.mesh_path != null)
+                          {
+                              var meshFilter = childObj.AddComponent<MeshFilter>();
+                              var meshRenderer = childObj.AddComponent<MeshRenderer>();
+                              meshFilter.mesh = AssetDatabase.LoadAssetAtPath<Mesh>(child.mesh_path);
+                          }
+                      }
+                      
+                      PrefabUtility.SaveAsPrefabAsset(root, prefabDef.save_path);
+                      Object.DestroyImmediate(root);
+                  }
+              }
+              
+              static object ParseValue(string value, System.Type type)
+              {
+                  if (type == typeof(int)) return int.Parse(value);
+                  if (type == typeof(float)) return float.Parse(value);
+                  if (type == typeof(bool)) return bool.Parse(value);
+                  return value;
+              }
+          }
+          
+          [System.Serializable]
+          public class PrefabList { public List<PrefabDef> prefabs; }
+          
+          [System.Serializable]
+          public class PrefabDef
+          {
+              public string name;
+              public string save_path;
+              public List<ComponentDef> components;
+              public List<ChildDef> children;
+          }
+          
+          [System.Serializable]
+          public class ComponentDef
+          {
+              public string type;
+              public List<PropertyDef> properties;
+          }
+          
+          [System.Serializable]
+          public class PropertyDef
+          {
+              public string name;
+              public string value;
+          }
+          
+          [System.Serializable]
+          public class ChildDef
+          {
+              public string name;
+              public Vector3 position;
+              public Vector3 rotation;
+              public Vector3 scale;
+              public string mesh_path;
+          }
+          EOF
+          
+          mkdir -p ./project/Assets/Editor
+          mv prefab_builder.cs ./project/Assets/Editor/
+          
+          export PREFABS='${{ inputs.prefabs }}'
+          
+          unity-editor \
+            -quit \
+            -batchmode \
+            -nographics \
+            -projectPath ./project \
+            -executeMethod PrefabBuilder.Execute \
+            -logFile -
+      
+      - name: Upload modified project
+        run: |
+          rclone sync ./project "r2:stan-projects/${{ inputs.project_id }}" \
+            --progress \
+            --exclude 'Library/**' \
+            --exclude 'Temp/**' \
+            --exclude 'Logs/**'
+          
+          PREFAB_COUNT=$(echo '${{ inputs.prefabs }}' | jq '.prefabs | length')
+          echo "✅ Built $PREFAB_COUNT prefabs successfully"

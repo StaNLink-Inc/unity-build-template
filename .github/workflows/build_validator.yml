@@ -1,0 +1,149 @@
+name: Build Validator
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: 'Project ID'
+        required: true
+
+jobs:
+  validate-build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Setup rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf << EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          endpoint = https://c4bfd8b7429b61b9122497ec401f7693.r2.cloudflarestorage.com
+          acl = private
+          EOF
+      
+      - name: Download project
+        run: |
+          rclone copy "r2:stan-projects/${{ inputs.project_id }}" ./project --progress
+      
+      - name: Setup Unity
+        uses: game-ci/unity-builder@v4
+        with:
+          unityVersion: 2022.3.10f1
+      
+      - name: Run validation
+        run: |
+          cat > build_validator.cs << 'EOF'
+          using UnityEngine;
+          using UnityEditor;
+          using UnityEditor.SceneManagement;
+          using System.Collections.Generic;
+          using System.Linq;
+          using System.IO;
+          
+          public class BuildValidator
+          {
+              public static void Execute()
+              {
+                  var issues = new List<string>();
+                  
+                  // Check for missing script references
+                  var allPrefabs = AssetDatabase.FindAssets("t:Prefab")
+                      .Select(guid => AssetDatabase.GUIDToAssetPath(guid))
+                      .ToList();
+                  
+                  foreach (var prefabPath in allPrefabs)
+                  {
+                      var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+                      var components = prefab.GetComponentsInChildren<Component>(true);
+                      
+                      foreach (var comp in components)
+                      {
+                          if (comp == null)
+                          {
+                              issues.Add($"Missing script on prefab: {prefabPath}");
+                          }
+                      }
+                  }
+                  
+                  // Check all scenes in build settings
+                  foreach (var scene in EditorBuildSettings.scenes)
+                  {
+                      if (!scene.enabled) continue;
+                      
+                      var sceneObj = EditorSceneManager.OpenScene(scene.path);
+                      var rootObjects = sceneObj.GetRootGameObjects();
+                      
+                      foreach (var root in rootObjects)
+                      {
+                          var components = root.GetComponentsInChildren<Component>(true);
+                          foreach (var comp in components)
+                          {
+                              if (comp == null)
+                              {
+                                  issues.Add($"Missing script in scene: {scene.path} on GameObject: {root.name}");
+                              }
+                          }
+                      }
+                  }
+                  
+                  // Check for missing asset references
+                  var allAssets = AssetDatabase.FindAssets("")
+                      .Select(guid => AssetDatabase.GUIDToAssetPath(guid))
+                      .Where(path => !path.StartsWith("Packages/"))
+                      .ToList();
+                  
+                  foreach (var assetPath in allAssets)
+                  {
+                      var dependencies = AssetDatabase.GetDependencies(assetPath, false);
+                      foreach (var dep in dependencies)
+                      {
+                          if (!File.Exists(dep) && !dep.StartsWith("Packages/"))
+                          {
+                              issues.Add($"Missing dependency: {dep} required by {assetPath}");
+                          }
+                      }
+                  }
+                  
+                  // Output results
+                  if (issues.Count > 0)
+                  {
+                      Debug.LogError($"❌ Validation failed with {issues.Count} issues:");
+                      foreach (var issue in issues)
+                      {
+                          Debug.LogError(issue);
+                      }
+                      EditorApplication.Exit(1);
+                  }
+                  else
+                  {
+                      Debug.Log("✅ Build validation passed - no issues found");
+                      EditorApplication.Exit(0);
+                  }
+              }
+          }
+          EOF
+          
+          mkdir -p ./project/Assets/Editor
+          mv build_validator.cs ./project/Assets/Editor/
+          
+          unity-editor \
+            -quit \
+            -batchmode \
+            -nographics \
+            -projectPath ./project \
+            -executeMethod BuildValidator.Execute \
+            -logFile - || echo "VALIDATION_FAILED=true" >> $GITHUB_ENV
+      
+      - name: Report results
+        run: |
+          if [ "$VALIDATION_FAILED" = "true" ]; then
+            echo "❌ Build validation failed - check logs above"
+            exit 1
+          else
+            echo "✅ Project ${{ inputs.project_id }} passed all validation checks"
+          fi

@@ -41,10 +41,16 @@ jobs:
       
       - name: Download and import template (if specified)
         if: ${{ inputs.template_package != '' }}
+        env:
+          STAN_TEMPLATES_PUBLIC_URL: ${{ secrets.STAN_TEMPLATES_PUBLIC_URL }}
         run: |
-          # Download .unitypackage from R2
-          curl -X GET "https://stan-templates.stanleyisaac134.workers.dev/${{ inputs.template_package }}" \
-            -o template.unitypackage
+          # Download .unitypackage from R2 using public URL
+          TEMPLATE_PATH="${{ inputs.template_package }}"
+          ENCODED_PATH=$(echo "$TEMPLATE_PATH" | sed 's/ /%20/g')
+          FULL_URL="${STAN_TEMPLATES_PUBLIC_URL}/${ENCODED_PATH}"
+          
+          echo "📥 Downloading template from: $FULL_URL"
+          curl -L -f "$FULL_URL" -o template.unitypackage
           
           # Import using Unity CLI
           unity-editor \

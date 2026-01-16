@@ -1,15 +1,26 @@
 const fs = require('fs');
 const path = require('path');
 
-// Adsterra ad codes
-const ADSTERRA_POPUNDER = `
-<!-- Adsterra Popunder -->
+// Adsterra ad codes - ADULT (games.stanlink.online)
+const ADSTERRA_POPUNDER_ADULT = `
+<!-- Adsterra Popunder (Adult) -->
 <script src="https://pl28495311.effectivegatecpm.com/46/4e/3c/464e3cde8ee004c8444b4c53af1c0b72.js"></script>
 `;
 
-const ADSTERRA_SOCIAL_BAR = `
-<!-- Adsterra Social Bar -->
+const ADSTERRA_SOCIAL_BAR_ADULT = `
+<!-- Adsterra Social Bar (Adult) -->
 <script src="https://pl28495265.effectivegatecpm.com/c2/a3/01/c2a301a8c7d21f09d1f08b64184fb098.js"></script>
+`;
+
+// Adsterra ad codes - KIDS (kids.games.stanlink.online)
+const ADSTERRA_POPUNDER_KIDS = `
+<!-- Adsterra Popunder (Kids) -->
+<script src="https://pl28495532.effectivegatecpm.com/b6/86/09/b68609c1d670268194ffb8846d1c520e.js"></script>
+`;
+
+const ADSTERRA_SOCIAL_BAR_KIDS = `
+<!-- Adsterra Social Bar (Kids) -->
+<script src="https://pl28495448.effectivegatecpm.com/59/96/7f/59967ffa635edca96ab4a82a96b776bd.js"></script>
 `;
 
 const STAN_WATERMARK = `
@@ -65,27 +76,33 @@ function injectAds() {
     const projectMetaPath = path.join(__dirname, 'UnityProject', 'stan-project.json');
     let isPaid = false;
     let projectId = 'unknown';
+    let isKidsSite = false;
     
     if (fs.existsSync(projectMetaPath)) {
         const meta = JSON.parse(fs.readFileSync(projectMetaPath, 'utf8'));
         isPaid = meta.isPaid === true || meta.isPaid === 'true';
         projectId = meta.projectId || 'unknown';
+        isKidsSite = meta.isKidsSite === true || meta.isKidsSite === 'true';
     }
     
-    console.log(`📊 Project: ${projectId}, Paid: ${isPaid}`);
+    console.log(`📊 Project: ${projectId}, Paid: ${isPaid}, Kids Site: ${isKidsSite}`);
+    
+    // Select appropriate ad codes
+    const POPUNDER = isKidsSite ? ADSTERRA_POPUNDER_KIDS : ADSTERRA_POPUNDER_ADULT;
+    const SOCIAL_BAR = isKidsSite ? ADSTERRA_SOCIAL_BAR_KIDS : ADSTERRA_SOCIAL_BAR_ADULT;
     
     // Inject Stan Analytics (always)
     const analyticsCode = STAN_ANALYTICS.replace('{{PROJECT_ID}}', projectId);
     html = html.replace('</head>', `${analyticsCode}\n</head>`);
     
     // Inject Adsterra ads (ALWAYS - for all users)
-    console.log('💰 Injecting Adsterra ads');
+    console.log(`💰 Injecting Adsterra ads (${isKidsSite ? 'Kids' : 'Adult'})`);
     
     // Inject popunder ad in <head>
-    html = html.replace('</head>', `${ADSTERRA_POPUNDER}\n</head>`);
+    html = html.replace('</head>', `${POPUNDER}\n</head>`);
     
     // Inject social bar in <body>
-    html = html.replace('</body>', `${ADSTERRA_SOCIAL_BAR}\n</body>`);
+    html = html.replace('</body>', `${SOCIAL_BAR}\n</body>`);
     
     // Inject Stan watermark (free tier only)
     if (!isPaid) {

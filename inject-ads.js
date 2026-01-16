@@ -2,18 +2,9 @@ const fs = require('fs');
 const path = require('path');
 
 // Adsterra ad codes
-const ADSTERRA_INTERSTITIAL = `
-<!-- Adsterra Interstitial -->
-<script type="text/javascript">
-    atOptions = {
-        'key' : 'YOUR_ADSTERRA_KEY_HERE',
-        'format' : 'iframe',
-        'height' : 600,
-        'width' : 160,
-        'params' : {}
-    };
-    document.write('<scr' + 'ipt type="text/javascript" src="//www.topcreativeformat.com/YOUR_ADSTERRA_KEY_HERE/invoke.js"></scr' + 'ipt>');
-</script>
+const ADSTERRA_POPUNDER = `
+<!-- Adsterra Popunder -->
+<script src="https://pl28495311.effectivegatecpm.com/46/4e/3c/464e3cde8ee004c8444b4c53af1c0b72.js"></script>
 `;
 
 const ADSTERRA_SOCIAL_BAR = `
@@ -90,10 +81,10 @@ function injectAds() {
     // Inject Adsterra ads (ALWAYS - for all users)
     console.log('💰 Injecting Adsterra ads');
     
-    // Inject interstitial ad
-    html = html.replace('</body>', `${ADSTERRA_INTERSTITIAL}\n</body>`);
+    // Inject popunder ad in <head>
+    html = html.replace('</head>', `${ADSTERRA_POPUNDER}\n</head>`);
     
-    // Inject social bar
+    // Inject social bar in <body>
     html = html.replace('</body>', `${ADSTERRA_SOCIAL_BAR}\n</body>`);
     
     // Inject Stan watermark (free tier only)

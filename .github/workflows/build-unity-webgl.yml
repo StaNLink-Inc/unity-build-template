@@ -81,6 +81,27 @@ jobs:
           buildName: ${{ github.event.inputs.game_name }}
       
       # Inject Adsterra Ads
+      - name: Update project metadata with build settings
+        run: |
+          echo "📊 Fetching build settings from database..."
+          
+          # Fetch build settings from backend
+          RESPONSE=$(curl -s "https://stan-backend.stanleyisaac134.workers.dev/api/projects/${{ github.event.inputs.project_id }}/build-settings")
+          
+          # Extract isKidsSafe flag (default to false if not found)
+          IS_KIDS_SAFE=$(echo "$RESPONSE" | jq -r '.is_kids_safe // false')
+          
+          echo "🎯 Kids Safe Mode: $IS_KIDS_SAFE"
+          
+          # Update stan-project.json with isKidsSite flag
+          if [ -f "UnityProject/stan-project.json" ]; then
+            jq ".isKidsSite = $IS_KIDS_SAFE" UnityProject/stan-project.json > tmp.json
+            mv tmp.json UnityProject/stan-project.json
+            echo "✅ Updated stan-project.json with isKidsSite=$IS_KIDS_SAFE"
+          else
+            echo "⚠️ stan-project.json not found, skipping update"
+          fi
+      
       - name: Inject Stan Monetization
         run: |
           echo "💰 Injecting Adsterra ads..."

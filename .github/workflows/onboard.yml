@@ -46,7 +46,7 @@ jobs:
         run: |
           # Download .unitypackage from R2 using public URL
           TEMPLATE_PATH="${{ inputs.template_package }}"
-          ENCODED_PATH=$(echo "$TEMPLATE_PATH" | sed 's/ /%20/g')
+          ENCODED_PATH=$(echo "$TEMPLATE_PATH" | sed 's/ /%20/g' | sed 's/\//%2F/g')
           FULL_URL="${STAN_TEMPLATES_PUBLIC_URL}/${ENCODED_PATH}"
           
           echo "📥 Downloading template from: $FULL_URL"

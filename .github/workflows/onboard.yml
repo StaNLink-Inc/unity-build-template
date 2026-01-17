@@ -52,18 +52,57 @@ jobs:
       
       - name: Install Unity with Hub
         if: steps.check-cache.outputs.cache-hit != 'true'
-        uses: buildalon/unity-setup@v2
+        run: |
+          # Install Unity Hub if not cached
+          if ! command -v unityhub &> /dev/null; then
+            wget -qO - https://hub.unity3d.com/linux/keys/public | sudo apt-key add -
+            echo 'deb https://hub.unity3d.com/linux/repos/deb stable main' | sudo tee /etc/apt/sources.list.d/unityhub.list
+            sudo apt update && sudo apt install unityhub -y
+          fi
+          
+          # Remove old Unity versions if they exist
+          if [ -d "/home/runner/Unity/Hub/Editor" ]; then
+            find /home/runner/Unity/Hub/Editor -name "2019.*" -type d -exec rm -rf {} + 2>/dev/null || true
+            find /home/runner/Unity/Hub/Editor -name "2020.*" -type d -exec rm -rf {} + 2>/dev/null || true
+            find /home/runner/Unity/Hub/Editor -name "2021.*" -type d -exec rm -rf {} + 2>/dev/null || true
+          fi
+          
+          # Install Unity 2022.3.21f1 (LTS)
+          unityhub --headless install --version 2022.3.21f1 --changeset bf09ca542b87
+      
+      - name: Cache Unity Editor After Install
+        if: steps.check-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v3
         with:
-          build-targets: 'StandaloneWindows64'
+          path: /home/runner/Unity/Hub/Editor
+          key: unity-editor-2022.3.21f1-${{ runner.os }}
       
       - name: Activate Unity License
         id: activate
         if: steps.check-cache.outputs.cache-hit != 'true'
-        uses: buildalon/activate-unity-license@v2
+        run: |
+          # Create a temporary Unity project for activation
+          mkdir -p temp_project/ProjectSettings
+          echo 'm_EditorVersion: 2022.3.21f1' > temp_project/ProjectSettings/ProjectVersion.txt
+          
+          # Activate Unity using the temporary project
+          /home/runner/Unity/Hub/Editor/2022.3.21f1/Editor/Unity \
+            -quit \
+            -batchmode \
+            -nographics \
+            -projectPath temp_project \
+            -username "${{ secrets.UNITY_USERNAME }}" \
+            -password "${{ secrets.UNITY_PASSWORD }}" \
+            -logFile -
+          
+          echo "unity-ready=true" >> $GITHUB_OUTPUT
+      
+      - name: Cache Licensed Unity Editor
+        if: steps.activate.outputs.unity-ready == 'true'
+        uses: actions/cache/save@v3
         with:
-          license: 'Personal'
-          username: '${{ secrets.UNITY_USERNAME }}'
-          password: '${{ secrets.UNITY_PASSWORD }}'
+          path: /home/runner/Unity/Hub/Editor
+          key: unity-editor-licensed-2022.3.21f1-${{ runner.os }}
 
   onboard-project:
     runs-on: ubuntu-latest
@@ -79,11 +118,13 @@ jobs:
           git clone https://github.com/StaNLink-Inc/stanstarter.git project
           rm -rf project/.git
       
-      - name: Restore Unity Cache
+      - name: Restore Licensed Unity Cache
         uses: actions/cache@v3
         with:
           path: /home/runner/Unity/Hub/Editor
-          key: unity-editor-2022.3.21f1-${{ runner.os }}
+          key: unity-editor-licensed-2022.3.21f1-${{ runner.os }}
+          restore-keys: |
+            unity-editor-2022.3.21f1-${{ runner.os }}
       
       - name: Download and import template (if specified)
         if: ${{ inputs.template_package != '' }}

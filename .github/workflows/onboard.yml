@@ -39,8 +39,8 @@ jobs:
           echo 'deb https://hub.unity3d.com/linux/repos/deb stable main' | sudo tee /etc/apt/sources.list.d/unityhub.list
           sudo apt update && sudo apt install unityhub -y
           
-          # Install Unity 2019.2.11f1
-          unityhub --headless install --version 2019.2.11f1
+          # Install Unity 2022.3.21f1 (LTS)
+          unityhub --headless install --version 2022.3.21f1 --changeset bf09ca542b87
       
       - name: Download and import template (if specified)
         if: ${{ inputs.template_package != '' }}

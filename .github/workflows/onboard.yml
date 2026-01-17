@@ -52,39 +52,18 @@ jobs:
       
       - name: Install Unity with Hub
         if: steps.check-cache.outputs.cache-hit != 'true'
-        run: |
-          # Install Unity Hub if not cached
-          if ! command -v unityhub &> /dev/null; then
-            wget -qO - https://hub.unity3d.com/linux/keys/public | sudo apt-key add -
-            echo 'deb https://hub.unity3d.com/linux/repos/deb stable main' | sudo tee /etc/apt/sources.list.d/unityhub.list
-            sudo apt update && sudo apt install unityhub -y
-          fi
-          
-          # Remove old Unity versions if they exist
-          if [ -d "/home/runner/Unity/Hub/Editor" ]; then
-            find /home/runner/Unity/Hub/Editor -name "2019.*" -type d -exec rm -rf {} + 2>/dev/null || true
-            find /home/runner/Unity/Hub/Editor -name "2020.*" -type d -exec rm -rf {} + 2>/dev/null || true
-            find /home/runner/Unity/Hub/Editor -name "2021.*" -type d -exec rm -rf {} + 2>/dev/null || true
-          fi
-          
-          # Install Unity 2022.3.21f1 (LTS)
-          unityhub --headless install --version 2022.3.21f1 --changeset bf09ca542b87
+        uses: buildalon/unity-setup@v2
+        with:
+          build-targets: 'StandaloneWindows64'
       
       - name: Activate Unity License
         id: activate
         if: steps.check-cache.outputs.cache-hit != 'true'
-        run: |
-          # Activate Unity using the installed version
-          /home/runner/Unity/Hub/Editor/2022.3.21f1/Editor/Unity \
-            -quit \
-            -batchmode \
-            -nographics \
-            -serial "${{ secrets.UNITY_SERIAL }}" \
-            -username "${{ secrets.UNITY_EMAIL }}" \
-            -password "${{ secrets.UNITY_PASSWORD }}" \
-            -logFile -
-          
-          echo "unity-ready=true" >> $GITHUB_OUTPUT
+        uses: buildalon/activate-unity-license@v2
+        with:
+          license: 'Personal'
+          username: '${{ secrets.UNITY_USERNAME }}'
+          password: '${{ secrets.UNITY_PASSWORD }}'
 
   onboard-project:
     runs-on: ubuntu-latest

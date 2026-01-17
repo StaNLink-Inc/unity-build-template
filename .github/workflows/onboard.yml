@@ -32,15 +32,33 @@ jobs:
           git clone https://github.com/StaNLink-Inc/stanstarter.git project
           rm -rf project/.git
       
+      - name: Cache Unity Hub
+        uses: actions/cache@v3
+        with:
+          path: /opt/unityhub
+          key: unity-hub-${{ runner.os }}
+      
+      - name: Cache Unity Editor
+        uses: actions/cache@v3
+        with:
+          path: /home/runner/Unity/Hub/Editor
+          key: unity-editor-2022.3.21f1-${{ runner.os }}
+      
       - name: Install Unity with Hub
         run: |
-          # Install Unity Hub
-          wget -qO - https://hub.unity3d.com/linux/keys/public | sudo apt-key add -
-          echo 'deb https://hub.unity3d.com/linux/repos/deb stable main' | sudo tee /etc/apt/sources.list.d/unityhub.list
-          sudo apt update && sudo apt install unityhub -y
+          # Install Unity Hub if not cached
+          if ! command -v unityhub &> /dev/null; then
+            wget -qO - https://hub.unity3d.com/linux/keys/public | sudo apt-key add -
+            echo 'deb https://hub.unity3d.com/linux/repos/deb stable main' | sudo tee /etc/apt/sources.list.d/unityhub.list
+            sudo apt update && sudo apt install unityhub -y
+          fi
           
-          # Install Unity 2022.3.21f1 (LTS)
-          unityhub --headless install --version 2022.3.21f1 --changeset bf09ca542b87
+          # Install Unity 2022.3.21f1 (LTS) if not cached
+          if [ ! -d "/home/runner/Unity/Hub/Editor/2022.3.21f1" ]; then
+            unityhub --headless install --version 2022.3.21f1 --changeset bf09ca542b87
+          else
+            echo "Unity 2022.3.21f1 already installed (cached)"
+          fi
       
       - name: Download and import template (if specified)
         if: ${{ inputs.template_package != '' }}

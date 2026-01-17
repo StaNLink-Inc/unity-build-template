@@ -39,18 +39,6 @@ jobs:
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
       
-      - name: Install Unity Editor
-        uses: game-ci/unity-builder@v4
-        with:
-          targetPlatform: WebGL
-          unityVersion: 2019.2.11f1
-          buildMethod: ''
-          allowDirtyBuild: true
-        env:
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-      
       - name: Download and import template (if specified)
         if: ${{ inputs.template_package != '' }}
         env:
@@ -66,12 +54,8 @@ jobs:
           echo "📥 Downloading template from: $FULL_URL"
           curl -L -f "$FULL_URL" -o template.unitypackage
           
-          # Find Unity installation from unity-builder
-          UNITY_PATH=$(find /opt -name Unity -type f 2>/dev/null | head -n 1)
-          if [ -z "$UNITY_PATH" ]; then
-            echo "❌ Unity not found after installation"
-            exit 1
-          fi
+          # Find Unity installation
+          UNITY_PATH="/opt/unity/Editor/Unity"
           
           echo "Using Unity at: $UNITY_PATH"
           

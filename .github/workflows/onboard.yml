@@ -195,10 +195,13 @@ jobs:
           access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
           secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
           endpoint = https://c4bfd8b7429b61b9122497ec401f7693.r2.cloudflarestorage.com
-          acl = private
+          region = auto
           EOF
           
           # Upload entire project to R2 stan-projects bucket
+          # First ensure the bucket path exists
+          rclone mkdir r2:stan-projects/${{ inputs.project_id }}
+          
           rclone sync ./project r2:stan-projects/${{ inputs.project_id }} \
             --progress \
             --exclude '.git/**' \

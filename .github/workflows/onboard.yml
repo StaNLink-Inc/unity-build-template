@@ -94,7 +94,7 @@ jobs:
             -quit \
             -batchmode \
             -nographics \
-            -username "${{ secrets.UNITY_USERNAME }}" \
+            -username "${{ secrets.UNITY_EMAIL }}" \
             -password "${{ secrets.UNITY_PASSWORD }}" \
             -logFile -
           

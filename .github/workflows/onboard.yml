@@ -20,31 +20,38 @@ on:
         default: 'games.stanlink.online,kids.games.stanlink.online'
 
 jobs:
-  onboard-project:
+  setup-unity:
     runs-on: ubuntu-latest
+    outputs:
+      unity-ready: ${{ steps.check-cache.outputs.unity-ready || steps.activate.outputs.unity-ready }}
     
     steps:
-      - name: Checkout unity-build-template
-        uses: actions/checkout@v3
-      
-      - name: Clone stanstarter base
-        run: |
-          git clone https://github.com/StaNLink-Inc/stanstarter.git project
-          rm -rf project/.git
-      
-      - name: Cache Unity Hub
-        uses: actions/cache@v3
-        with:
-          path: /opt/unityhub
-          key: unity-hub-${{ runner.os }}
-      
-      - name: Cache Unity Editor
+      - name: Check Unity Cache
+        id: check-cache
         uses: actions/cache@v3
         with:
           path: /home/runner/Unity/Hub/Editor
           key: unity-editor-2022.3.21f1-${{ runner.os }}
       
+      - name: Skip if Unity cached
+        id: skip-check
+        if: steps.check-cache.outputs.cache-hit == 'true'
+        run: |
+          if [ -d "/home/runner/Unity/Hub/Editor/2022.3.21f1" ]; then
+            echo "Unity already cached and ready"
+            echo "unity-ready=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+      
+      - name: Cache Unity Hub
+        if: steps.check-cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v3
+        with:
+          path: /opt/unityhub
+          key: unity-hub-${{ runner.os }}
+      
       - name: Install Unity with Hub
+        if: steps.check-cache.outputs.cache-hit != 'true'
         run: |
           # Install Unity Hub if not cached
           if ! command -v unityhub &> /dev/null; then
@@ -60,14 +67,12 @@ jobs:
             find /home/runner/Unity/Hub/Editor -name "2021.*" -type d -exec rm -rf {} + 2>/dev/null || true
           fi
           
-          # Install Unity 2022.3.21f1 (LTS) if not cached
-          if [ ! -d "/home/runner/Unity/Hub/Editor/2022.3.21f1" ]; then
-            unityhub --headless install --version 2022.3.21f1 --changeset bf09ca542b87
-          else
-            echo "Unity 2022.3.21f1 already installed (cached)"
-          fi
+          # Install Unity 2022.3.21f1 (LTS)
+          unityhub --headless install --version 2022.3.21f1 --changeset bf09ca542b87
       
       - name: Activate Unity License
+        id: activate
+        if: steps.check-cache.outputs.cache-hit != 'true'
         run: |
           # Activate Unity using the installed version
           /home/runner/Unity/Hub/Editor/2022.3.21f1/Editor/Unity \
@@ -78,6 +83,28 @@ jobs:
             -username "${{ secrets.UNITY_EMAIL }}" \
             -password "${{ secrets.UNITY_PASSWORD }}" \
             -logFile -
+          
+          echo "unity-ready=true" >> $GITHUB_OUTPUT
+
+  onboard-project:
+    runs-on: ubuntu-latest
+    needs: setup-unity
+    if: needs.setup-unity.outputs.unity-ready == 'true'
+    
+    steps:
+      - name: Checkout unity-build-template
+        uses: actions/checkout@v3
+      
+      - name: Clone stanstarter base
+        run: |
+          git clone https://github.com/StaNLink-Inc/stanstarter.git project
+          rm -rf project/.git
+      
+      - name: Restore Unity Cache
+        uses: actions/cache@v3
+        with:
+          path: /home/runner/Unity/Hub/Editor
+          key: unity-editor-2022.3.21f1-${{ runner.os }}
       
       - name: Download and import template (if specified)
         if: ${{ inputs.template_package != '' }}
@@ -94,18 +121,8 @@ jobs:
           echo "📥 Downloading template from: $FULL_URL"
           curl -L -f "$FULL_URL" -o template.unitypackage
           
-          # Find Unity installation after activation
-          UNITY_PATH=$(find /home/runner -name "Unity" -type f -executable 2>/dev/null | grep Editor | head -n 1)
-          if [ -z "$UNITY_PATH" ]; then
-            echo "❌ Unity executable not found in /home/runner"
-            # Try alternative paths
-            UNITY_PATH=$(find /opt -name "Unity" -type f -executable 2>/dev/null | grep -v unityhub | head -n 1)
-            if [ -z "$UNITY_PATH" ]; then
-              echo "❌ Unity executable not found anywhere"
-              find /home/runner -name "*Unity*" -type f 2>/dev/null || echo "No Unity files found"
-              exit 1
-            fi
-          fi
+          # Use the cached Unity path
+          UNITY_PATH="/home/runner/Unity/Hub/Editor/2022.3.21f1/Editor/Unity"
           
           echo "Using Unity at: $UNITY_PATH"
           

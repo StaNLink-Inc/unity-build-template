@@ -80,17 +80,20 @@ jobs:
       - name: Activate Unity License
         id: activate
         if: steps.check-cache.outputs.cache-hit != 'true'
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
         run: |
-          # Create a temporary Unity project for activation
-          mkdir -p temp_project/ProjectSettings
-          echo 'm_EditorVersion: 2022.3.21f1' > temp_project/ProjectSettings/ProjectVersion.txt
+          # Create Unity license directory
+          mkdir -p ~/.local/share/unity3d/Unity/
           
-          # Activate Unity using the temporary project
+          # Write license file
+          echo "$UNITY_LICENSE" | tr -d '\r' > ~/.local/share/unity3d/Unity/Unity_lic.ulf
+          
+          # Test Unity with license and credentials
           /home/runner/Unity/Hub/Editor/2022.3.21f1/Editor/Unity \
             -quit \
             -batchmode \
             -nographics \
-            -projectPath temp_project \
             -username "${{ secrets.UNITY_USERNAME }}" \
             -password "${{ secrets.UNITY_PASSWORD }}" \
             -logFile -

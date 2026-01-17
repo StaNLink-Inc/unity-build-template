@@ -1,0 +1,248 @@
+name: Unity Activation Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      activation_method:
+        description: 'Activation method to test'
+        required: true
+        default: 'license_file'
+        type: choice
+        options:
+          - license_file
+          - personal_license
+          - unity_hub
+          - manual_activation
+
+jobs:
+  test-unity-activation:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      
+      - name: Cache Unity Installation
+        id: cache-unity
+        uses: actions/cache@v3
+        with:
+          path: /opt/unity
+          key: unity-2022.3.21f1-linux
+      
+      - name: Install Unity Hub
+        if: steps.cache-unity.outputs.cache-hit != 'true'
+        run: |
+          # Download Unity Hub
+          wget -qO - https://hub.unity3d.com/linux/keys/public | sudo apt-key add -
+          echo 'deb https://hub.unity3d.com/linux/repos/deb stable main' | sudo tee /etc/apt/sources.list.d/unityhub.list
+          sudo apt update
+          sudo apt install unityhub -y
+      
+      - name: Install Unity Editor
+        if: steps.cache-unity.outputs.cache-hit != 'true'
+        run: |
+          # Install Unity 2022.3.21f1
+          sudo mkdir -p /opt/unity
+          unityhub --headless install --version 2022.3.21f1 --changeset bf09ca542b87 --installPath /opt/unity
+          
+          # Verify installation
+          ls -la /opt/unity/
+          
+          # Set permissions
+          sudo chmod -R 755 /opt/unity/
+      
+      # Method 1: License File Activation
+      - name: Method 1 - License File Activation
+        if: inputs.activation_method == 'license_file'
+        continue-on-error: true
+        id: license-file
+        run: |
+          echo "🔑 Attempting license file activation..."
+          
+          # Create Unity directories
+          mkdir -p ~/.local/share/unity3d/Unity/
+          
+          # Write license file
+          echo "${{ secrets.UNITY_LICENSE }}" | base64 -d > ~/.local/share/unity3d/Unity/Unity_lic.ulf
+          
+          # Verify license file
+          if [ -f ~/.local/share/unity3d/Unity/Unity_lic.ulf ]; then
+            echo "✅ License file created successfully"
+            ls -la ~/.local/share/unity3d/Unity/
+          else
+            echo "❌ License file creation failed"
+            exit 1
+          fi
+          
+          # Test Unity with license
+          /opt/unity/2022.3.21f1/Editor/Unity \
+            -quit \
+            -batchmode \
+            -nographics \
+            -logFile unity_test.log \
+            -createProject /tmp/test_project
+          
+          echo "✅ License file activation successful!"
+      
+      # Method 2: Personal License Activation
+      - name: Method 2 - Personal License Activation
+        if: inputs.activation_method == 'personal_license'
+        continue-on-error: true
+        id: personal-license
+        run: |
+          echo "🔑 Attempting personal license activation..."
+          
+          /opt/unity/2022.3.21f1/Editor/Unity \
+            -quit \
+            -batchmode \
+            -nographics \
+            -username "${{ secrets.UNITY_EMAIL }}" \
+            -password "${{ secrets.UNITY_PASSWORD }}" \
+            -logFile unity_activation.log
+          
+          # Check if activation succeeded
+          if grep -q "LICENSE SYSTEM.*OK" unity_activation.log; then
+            echo "✅ Personal license activation successful!"
+          else
+            echo "❌ Personal license activation failed"
+            cat unity_activation.log
+            exit 1
+          fi
+      
+      # Method 3: Unity Hub Activation
+      - name: Method 3 - Unity Hub Activation
+        if: inputs.activation_method == 'unity_hub'
+        continue-on-error: true
+        id: hub-activation
+        run: |
+          echo "🔑 Attempting Unity Hub activation..."
+          
+          # Login to Unity Hub
+          unityhub --headless login \
+            --username "${{ secrets.UNITY_EMAIL }}" \
+            --password "${{ secrets.UNITY_PASSWORD }}"
+          
+          # Activate license through Hub
+          unityhub --headless activate \
+            --license-type personal
+          
+          echo "✅ Unity Hub activation successful!"
+      
+      # Method 4: Manual Activation (Request/Response)
+      - name: Method 4 - Manual Activation Request
+        if: inputs.activation_method == 'manual_activation'
+        continue-on-error: true
+        id: manual-activation
+        run: |
+          echo "🔑 Attempting manual activation..."
+          
+          # Generate activation request
+          /opt/unity/2022.3.21f1/Editor/Unity \
+            -quit \
+            -batchmode \
+            -nographics \
+            -createManualActivationFile \
+            -logFile manual_activation.log
+          
+          # Check if .alf file was created
+          if [ -f Unity_v*.alf ]; then
+            echo "✅ Manual activation file created:"
+            ls -la Unity_v*.alf
+            echo "📄 Activation file content:"
+            cat Unity_v*.alf
+            
+            # In real scenario, you'd upload this to Unity and get back .ulf
+            # For now, we'll use the stored license
+            if [ -n "${{ secrets.UNITY_MANUAL_LICENSE }}" ]; then
+              echo "${{ secrets.UNITY_MANUAL_LICENSE }}" | base64 -d > Unity_lic.ulf
+              
+              # Apply manual license
+              /opt/unity/2022.3.21f1/Editor/Unity \
+                -quit \
+                -batchmode \
+                -nographics \
+                -manualLicenseFile Unity_lic.ulf \
+                -logFile manual_apply.log
+              
+              echo "✅ Manual license applied!"
+            fi
+          else
+            echo "❌ Manual activation file creation failed"
+            exit 1
+          fi
+      
+      # Test Unity Functionality
+      - name: Test Unity Editor Functionality
+        run: |
+          echo "🧪 Testing Unity Editor functionality..."
+          
+          # Create a test project
+          /opt/unity/2022.3.21f1/Editor/Unity \
+            -quit \
+            -batchmode \
+            -nographics \
+            -createProject /tmp/unity_test \
+            -logFile unity_create_test.log
+          
+          # Test script compilation
+          mkdir -p /tmp/unity_test/Assets/Scripts
+          cat > /tmp/unity_test/Assets/Scripts/TestScript.cs << 'EOF'
+          using UnityEngine;
+          
+          public class TestScript : MonoBehaviour
+          {
+              void Start()
+              {
+                  Debug.Log("Unity activation test successful!");
+              }
+          }
+          EOF
+          
+          # Test project opening and script compilation
+          /opt/unity/2022.3.21f1/Editor/Unity \
+            -quit \
+            -batchmode \
+            -nographics \
+            -projectPath /tmp/unity_test \
+            -executeMethod UnityEditor.EditorApplication.Exit \
+            -logFile unity_compile_test.log
+          
+          echo "✅ Unity Editor functionality test completed!"
+          
+          # Show logs for debugging
+          echo "📋 Unity logs:"
+          cat unity_create_test.log || echo "No create log"
+          cat unity_compile_test.log || echo "No compile log"
+      
+      # Report Results
+      - name: Report Activation Results
+        run: |
+          echo "📊 Unity Activation Test Results:"
+          echo "=================================="
+          
+          if [ "${{ steps.license-file.outcome }}" = "success" ]; then
+            echo "✅ License File Method: SUCCESS"
+          else
+            echo "❌ License File Method: FAILED"
+          fi
+          
+          if [ "${{ steps.personal-license.outcome }}" = "success" ]; then
+            echo "✅ Personal License Method: SUCCESS"
+          else
+            echo "❌ Personal License Method: FAILED"
+          fi
+          
+          if [ "${{ steps.hub-activation.outcome }}" = "success" ]; then
+            echo "✅ Unity Hub Method: SUCCESS"
+          else
+            echo "❌ Unity Hub Method: FAILED"
+          fi
+          
+          if [ "${{ steps.manual-activation.outcome }}" = "success" ]; then
+            echo "✅ Manual Activation Method: SUCCESS"
+          else
+            echo "❌ Manual Activation Method: FAILED"
+          fi
+          
+          echo "=================================="
+          echo "🎯 Recommended: Use the successful method in production workflows"

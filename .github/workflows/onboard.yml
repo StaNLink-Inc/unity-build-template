@@ -53,6 +53,13 @@ jobs:
             sudo apt update && sudo apt install unityhub -y
           fi
           
+          # Remove old Unity versions if they exist
+          if [ -d "/home/runner/Unity/Hub/Editor" ]; then
+            find /home/runner/Unity/Hub/Editor -name "2019.*" -type d -exec rm -rf {} + 2>/dev/null || true
+            find /home/runner/Unity/Hub/Editor -name "2020.*" -type d -exec rm -rf {} + 2>/dev/null || true
+            find /home/runner/Unity/Hub/Editor -name "2021.*" -type d -exec rm -rf {} + 2>/dev/null || true
+          fi
+          
           # Install Unity 2022.3.21f1 (LTS) if not cached
           if [ ! -d "/home/runner/Unity/Hub/Editor/2022.3.21f1" ]; then
             unityhub --headless install --version 2022.3.21f1 --changeset bf09ca542b87
@@ -61,11 +68,16 @@ jobs:
           fi
       
       - name: Activate Unity License
-        uses: game-ci/unity-activate@v2
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: |
+          # Activate Unity using the installed version
+          /home/runner/Unity/Hub/Editor/2022.3.21f1/Editor/Unity \
+            -quit \
+            -batchmode \
+            -nographics \
+            -serial "${{ secrets.UNITY_SERIAL }}" \
+            -username "${{ secrets.UNITY_EMAIL }}" \
+            -password "${{ secrets.UNITY_PASSWORD }}" \
+            -logFile -
       
       - name: Download and import template (if specified)
         if: ${{ inputs.template_package != '' }}

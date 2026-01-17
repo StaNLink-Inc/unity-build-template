@@ -23,7 +23,7 @@ jobs:
   setup-unity:
     runs-on: ubuntu-latest
     outputs:
-      unity-ready: ${{ steps.check-cache.outputs.unity-ready || steps.activate.outputs.unity-ready }}
+      unity-ready: ${{ (steps.check-cache.outputs.cache-hit == 'true') || (steps.activate.outputs.unity-ready == 'true') }}
     
     steps:
       - name: Check Unity Cache
@@ -34,13 +34,10 @@ jobs:
           key: unity-editor-2022.3.21f1-${{ runner.os }}
       
       - name: Skip if Unity cached
-        id: skip-check
         if: steps.check-cache.outputs.cache-hit == 'true'
         run: |
           if [ -d "/home/runner/Unity/Hub/Editor/2022.3.21f1" ]; then
             echo "Unity already cached and ready"
-            echo "unity-ready=true" >> $GITHUB_OUTPUT
-            exit 0
           fi
       
       - name: Cache Unity Hub
@@ -110,7 +107,6 @@ jobs:
   onboard-project:
     runs-on: ubuntu-latest
     needs: setup-unity
-    if: needs.setup-unity.outputs.unity-ready == 'true'
     
     steps:
       - name: Checkout unity-build-template

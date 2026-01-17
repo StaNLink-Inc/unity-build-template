@@ -82,6 +82,8 @@ jobs:
           key: unity-editor-2022.3.21f1-${{ runner.os }}
       
       - name: Activate Unity License
+        id: unity-activation
+        continue-on-error: true
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
         run: |
@@ -96,8 +98,8 @@ jobs:
             -password "${{ secrets.UNITY_PASSWORD }}" \
             -logFile -
       
-      - name: Download and import template (if specified)
-        if: ${{ inputs.template_package != '' }}
+      - name: Download and import template (if specified and Unity activated)
+        if: ${{ inputs.template_package != '' && steps.unity-activation.outcome == 'success' }}
         env:
           STAN_TEMPLATES_PUBLIC_URL: ${{ secrets.STAN_TEMPLATES_PUBLIC_URL }}
         run: |
@@ -127,6 +129,13 @@ jobs:
           
           echo "✅ Template imported to Assets/"
       
+      - name: Handle Unity activation failure
+        if: ${{ steps.unity-activation.outcome == 'failure' }}
+        run: |
+          echo "⚠️ Unity activation failed - proceeding with base stanstarter project"
+          echo "🎯 Stan AI agents will generate all game content from scratch"
+          echo "📦 Template: ${{ inputs.template_package || 'none' }} (will be ignored)"
+      
       - name: Inject project configuration
         run: |
           # Replace placeholders in StanAnalytics.cs
@@ -152,10 +161,20 @@ jobs:
       
       - name: Create project metadata
         run: |
+          # Determine actual template status
+          if [ "${{ steps.unity-activation.outcome }}" = "failure" ]; then
+            TEMPLATE_STATUS="failed_to_import"
+            ACTUAL_TEMPLATE=""
+          else
+            TEMPLATE_STATUS="imported"
+            ACTUAL_TEMPLATE="${{ inputs.template_package }}"
+          fi
+          
           cat > project/stan-project.json << EOF
           {
             "projectId": "${{ inputs.project_id }}",
-            "template": "${{ inputs.template_package }}",
+            "template": "$ACTUAL_TEMPLATE",
+            "templateStatus": "$TEMPLATE_STATUS",
             "createdAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "isPaid": ${{ inputs.is_paid }},
             "domains": ["${{ inputs.allowed_domains }}"]
@@ -191,16 +210,35 @@ jobs:
       
       - name: Notify backend
         run: |
+          # Determine notification payload based on Unity activation
+          if [ "${{ steps.unity-activation.outcome }}" = "failure" ]; then
+            TEMPLATE_IMPORTED="false"
+            ACTUAL_TEMPLATE=""
+            STATUS_MESSAGE="onboarded_base_only"
+          else
+            TEMPLATE_IMPORTED="true"
+            ACTUAL_TEMPLATE="${{ inputs.template_package }}"
+            STATUS_MESSAGE="onboarded"
+          fi
+          
           curl -X POST "https://stan-backend.stanleyisaac134.workers.dev/api/projects/${{ inputs.project_id }}/onboarded" \
             -H "Content-Type: application/json" \
             -d '{
-              "status": "onboarded",
-              "template": "${{ inputs.template_package }}",
+              "status": "'$STATUS_MESSAGE'",
+              "template": "'$ACTUAL_TEMPLATE'",
+              "templateImported": '$TEMPLATE_IMPORTED',
+              "unityActivated": "${{ steps.unity-activation.outcome == 'success' }}",
               "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
             }'
       
       - name: Success
         run: |
           echo "✅ Project ${{ inputs.project_id }} onboarded successfully!"
-          echo "📦 Template: ${{ inputs.template_package }}"
+          if [ "${{ steps.unity-activation.outcome }}" = "failure" ]; then
+            echo "⚠️ Unity activation failed - using base stanstarter project"
+            echo "🤖 Stan AI agents will generate all game content"
+            echo "📦 Template: none (base project only)"
+          else
+            echo "📦 Template: ${{ inputs.template_package }}"
+          fi
           echo "☁️ Location: R2 stan-projects/${{ inputs.project_id }}"

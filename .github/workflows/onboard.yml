@@ -58,11 +58,16 @@ jobs:
           curl -L -f "$FULL_URL" -o template.unitypackage
           
           # Find Unity installation after activation
-          UNITY_PATH=$(find /opt -name "Unity" -type f -executable 2>/dev/null | head -n 1)
+          UNITY_PATH=$(find /home/runner -name "Unity" -type f -executable 2>/dev/null | grep Editor | head -n 1)
           if [ -z "$UNITY_PATH" ]; then
-            echo "❌ Unity executable not found"
-            find /opt -name "*Unity*" -type f 2>/dev/null || echo "No Unity files found"
-            exit 1
+            echo "❌ Unity executable not found in /home/runner"
+            # Try alternative paths
+            UNITY_PATH=$(find /opt -name "Unity" -type f -executable 2>/dev/null | grep -v unityhub | head -n 1)
+            if [ -z "$UNITY_PATH" ]; then
+              echo "❌ Unity executable not found anywhere"
+              find /home/runner -name "*Unity*" -type f 2>/dev/null || echo "No Unity files found"
+              exit 1
+            fi
           fi
           
           echo "Using Unity at: $UNITY_PATH"

@@ -31,26 +31,15 @@ jobs:
   setup-unity:
     runs-on: ubuntu-latest
     outputs:
-      unity-ready: ${{ steps.activate.outputs.unity-ready == 'true' }}
+      unity-ready: ${{ steps.check-cache.outputs.cache-hit == 'true' || steps.install.outputs.unity-ready == 'true' }}
     
     steps:
-      - name: Check Licensed Unity Cache
+      - name: Check Unity Cache
         id: check-cache
         uses: actions/cache@v3
         with:
-          path: |
-            /home/runner/Unity/Hub/Editor
-            /home/runner/.local/share/unity3d/Unity
-          key: unity-licensed-2022.3.21f1-${{ runner.os }}
-      
-      - name: Skip if Unity cached and licensed
-        if: steps.check-cache.outputs.cache-hit == 'true'
-        run: |
-          if [ -d "/home/runner/Unity/Hub/Editor/2022.3.21f1" ] && [ -f "/home/runner/.local/share/unity3d/Unity/Unity_lic.ulf" ]; then
-            echo "Unity already cached and licensed"
-            echo "unity-ready=true" >> $GITHUB_OUTPUT
-          fi
-        id: check-licensed
+          path: /home/runner/Unity/Hub/Editor
+          key: unity-editor-2022.3.21f1-${{ runner.os }}
       
       - name: Install Unity Hub
         if: steps.check-cache.outputs.cache-hit != 'true'
@@ -60,37 +49,18 @@ jobs:
           sudo apt update && sudo apt install unityhub -y
       
       - name: Install Unity Editor
+        id: install
         if: steps.check-cache.outputs.cache-hit != 'true'
         run: |
           unityhub --headless install --version 2022.3.21f1 --changeset bf09ca542b87
-      
-      - name: Activate Unity License
-        id: activate
-        if: steps.check-cache.outputs.cache-hit != 'true'
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-        run: |
-          mkdir -p ~/.local/share/unity3d/Unity/
-          echo "$UNITY_LICENSE" | tr -d '\r' > ~/.local/share/unity3d/Unity/Unity_lic.ulf
-          
-          /home/runner/Unity/Hub/Editor/2022.3.21f1/Editor/Unity \
-            -quit \
-            -batchmode \
-            -nographics \
-            -username "${{ secrets.UNITY_EMAIL }}" \
-            -password "${{ secrets.UNITY_PASSWORD }}" \
-            -logFile -
-          
           echo "unity-ready=true" >> $GITHUB_OUTPUT
       
-      - name: Cache Licensed Unity
-        if: steps.activate.outputs.unity-ready == 'true'
+      - name: Cache Unity Editor
+        if: steps.install.outputs.unity-ready == 'true'
         uses: actions/cache/save@v3
         with:
-          path: |
-            /home/runner/Unity/Hub/Editor
-            /home/runner/.local/share/unity3d/Unity
-          key: unity-licensed-2022.3.21f1-${{ runner.os }}
+          path: /home/runner/Unity/Hub/Editor
+          key: unity-editor-2022.3.21f1-${{ runner.os }}
 
   onboard-project:
     runs-on: ubuntu-latest
@@ -105,33 +75,26 @@ jobs:
           git clone https://github.com/StaNLink-Inc/stanstarter.git project
           rm -rf project/.git
       
-      - name: Restore Licensed Unity Cache
+      - name: Restore Unity Cache
         uses: actions/cache@v3
         with:
-          path: |
-            /home/runner/Unity/Hub/Editor
-            /home/runner/.local/share/unity3d/Unity
-          key: unity-licensed-2022.3.21f1-${{ runner.os }}
+          path: /home/runner/Unity/Hub/Editor
+          key: unity-editor-2022.3.21f1-${{ runner.os }}
       
-      - name: Activate Unity if needed
+      - name: Activate Unity License
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
         run: |
-          if [ ! -f "/home/runner/.local/share/unity3d/Unity/Unity_lic.ulf" ]; then
-            echo "License file not found, activating Unity..."
-            mkdir -p ~/.local/share/unity3d/Unity/
-            echo "$UNITY_LICENSE" | tr -d '\r' > ~/.local/share/unity3d/Unity/Unity_lic.ulf
-            
-            /home/runner/Unity/Hub/Editor/2022.3.21f1/Editor/Unity \
-              -quit \
-              -batchmode \
-              -nographics \
-              -username "${{ secrets.UNITY_EMAIL }}" \
-              -password "${{ secrets.UNITY_PASSWORD }}" \
-              -logFile -
-          else
-            echo "Unity license already activated"
-          fi
+          mkdir -p ~/.local/share/unity3d/Unity/
+          echo "$UNITY_LICENSE" | tr -d '\r' > ~/.local/share/unity3d/Unity/Unity_lic.ulf
+          
+          /home/runner/Unity/Hub/Editor/2022.3.21f1/Editor/Unity \
+            -quit \
+            -batchmode \
+            -nographics \
+            -username "${{ secrets.UNITY_EMAIL }}" \
+            -password "${{ secrets.UNITY_PASSWORD }}" \
+            -logFile -
       
       - name: Download and import template (if specified)
         if: ${{ inputs.template_package != '' }}

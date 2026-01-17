@@ -1,0 +1,62 @@
+name: Unity Cache Management
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        type: choice
+        options:
+          - 'setup'
+          - 'clear'
+        default: 'setup'
+
+jobs:
+  setup-unity-cache:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'setup'
+    
+    steps:
+      - name: Install Unity Hub
+        run: |
+          wget -qO - https://hub.unity3d.com/linux/keys/public | sudo apt-key add -
+          echo 'deb https://hub.unity3d.com/linux/repos/deb stable main' | sudo tee /etc/apt/sources.list.d/unityhub.list
+          sudo apt update && sudo apt install unityhub -y
+      
+      - name: Install Unity Editor
+        run: |
+          unityhub --headless install --version 2022.3.21f1 --changeset bf09ca542b87
+      
+      - name: Activate Unity License
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        run: |
+          mkdir -p ~/.local/share/unity3d/Unity/
+          echo "$UNITY_LICENSE" | tr -d '\r' > ~/.local/share/unity3d/Unity/Unity_lic.ulf
+          
+          /home/runner/Unity/Hub/Editor/2022.3.21f1/Editor/Unity \
+            -quit \
+            -batchmode \
+            -nographics \
+            -username "${{ secrets.UNITY_EMAIL }}" \
+            -password "${{ secrets.UNITY_PASSWORD }}" \
+            -logFile -
+      
+      - name: Cache Licensed Unity
+        uses: actions/cache/save@v3
+        with:
+          path: |
+            /home/runner/Unity/Hub/Editor
+            /home/runner/.local/share/unity3d/Unity
+          key: unity-licensed-2022.3.21f1-${{ runner.os }}
+
+  clear-unity-cache:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'clear'
+    
+    steps:
+      - name: Clear Cache (Dummy)
+        run: |
+          echo "Cache will be cleared on next setup run"
+          echo "This is a placeholder - GitHub Actions cache is cleared by creating new cache keys"

@@ -64,6 +64,8 @@ jobs:
           customParameters: -importPackage /github/workspace/project/template.unitypackage -quit -batchmode -nographics
           buildMethod: UnityEditor.EditorApplication.Exit
 
+
+
       - name: Inject Configuration (Shell)
         run: |
           # Replace placeholders

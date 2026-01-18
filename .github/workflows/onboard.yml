@@ -63,6 +63,8 @@ jobs:
           # Trying straightforward -importPackage approach
           customParameters: -importPackage /github/workspace/project/template.unitypackage -quit -batchmode -nographics
           buildMethod: UnityEditor.EditorApplication.Exit
+          allowDirtyBuild: true
+          versioning: None
 
 
 

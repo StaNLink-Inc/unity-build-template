@@ -5,16 +5,33 @@ jobs:
     name: Request Manual Activation File
     runs-on: ubuntu-latest
     steps:
-      - name: Request Manual Activation File
-        id: getActivationFile
-        uses: game-ci/unity-request-activation-file@v2
-        with:
-          unityVersion: 2022.3.10f1
-          # unityEmail: ${{ secrets.UNITY_EMAIL }}
-          # unityPassword: ${{ secrets.UNITY_PASSWORD }}
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate Activation File
+        run: |
+          # Run Unity Editor in Docker to generate the .alf file
+          # We map the current workspace to the container so the file is saved here.
+          echo "Starting Unity Editor to generate license request..."
+          
+          # Ensure workspace is writable
+          chmod -R 777 .
+          
+          docker run --rm \
+            -v "${{ github.workspace }}:/home/unity/project" \
+            -w "/home/unity/project" \
+            unityci/editor:ubuntu-2022.3.10f1-base-3 \
+            unity-editor \
+            -batchmode \
+            -nographics \
+            -createManualActivationFile \
+            -logfile /dev/stdout
+            
+          echo "✅ Generation complete. Listing files:"
+          ls -la *.alf
 
       - name: Upload Activation File
         uses: actions/upload-artifact@v4
         with:
-          name: Unity_v2022.3.10f1.alf
-          path: ${{ steps.getActivationFile.outputs.filePath }}
+          name: Unity_Activation_File
+          path: ./*.alf

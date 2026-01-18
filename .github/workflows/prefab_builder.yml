@@ -64,13 +64,17 @@ jobs:
         uses: game-ci/unity-builder@v4
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
           PREFABS: ${{ inputs.prefabs }}
         with:
           projectPath: ./project
           unityVersion: 2022.3.10f1
           buildMethod: PrefabBuilder.Execute
           customParameters: -nographics -batchmode -quit
+          allowDirtyBuild: true
+          versioning: None
 
       - name: Upload Changes
         run: |
@@ -79,3 +83,11 @@ jobs:
             --exclude 'Library/**' \
             --exclude 'Temp/**' \
             --exclude 'Logs/**'
+
+      - name: Return License
+        uses: game-ci/unity-return-license@v2
+        if: always()
+        env:
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}

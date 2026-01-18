@@ -19,7 +19,12 @@ jobs:
           curl https://rclone.org/install.sh | sudo bash
           mkdir -p ~/.config/rclone
           R2_ENDPOINT="${{ secrets.R2_ENDPOINT }}"
-          if [ -z "$R2_ENDPOINT" ]; then R2_ENDPOINT="https://c4bfd8b7429b61b9122497ec401f7693.r2.cloudflarestorage.com"; fi
+          if [ -z "$R2_ENDPOINT" ]; then
+             R2_ENDPOINT="https://c4bfd8b7429b61b9122497ec401f7693.r2.cloudflarestorage.com"
+          else
+             # Sanitize: Strip potential bucket path
+             R2_ENDPOINT=$(echo "$R2_ENDPOINT" | sed 's|\.r2\.cloudflarestorage\.com.*|.r2.cloudflarestorage.com|')
+          fi
           cat > ~/.config/rclone/rclone.conf << EOF
           [r2]
           type = s3

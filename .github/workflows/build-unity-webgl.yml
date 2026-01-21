@@ -136,17 +136,65 @@ jobs:
       
       # Notify STAN backend of completion
       - name: Notify STAN Backend
+        if: success()
         env:
           STAN_BACKEND_URL: ${{ secrets.STAN_BACKEND_URL }}
           STAN_API_KEY: ${{ secrets.STAN_API_KEY }}
         run: |
+          # Notify backend
           curl -X POST "$STAN_BACKEND_URL/api/build/complete" \
             -H "Authorization: Bearer $STAN_API_KEY" \
             -H "Content-Type: application/json" \
             -d '{
               "project_id": "${{ github.event.inputs.project_id }}",
               "status": "success",
-              "deploy_url": "https://games.stanlink.online/${{ github.event.inputs.slug }}"
+              "deploy_url": "https://games.stanlink.online/${{ github.event.inputs.slug }}",
+              "game_name": "${{ github.event.inputs.game_name }}"
+            }'
+          
+          # Send success email
+          curl -X POST "https://mailer.stanlink.online/stanlink.online/mailer1/stan-build-succesful" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "to": "${{ secrets.NOTIFICATION_EMAIL }}",
+              "sender": "stan",
+              "variables": {
+                "subject": "🎮 ${{ github.event.inputs.game_name }} - Unity Build Complete!",
+                "game_name": "${{ github.event.inputs.game_name }}",
+                "engine": "Unity",
+                "play_url": "https://games.stanlink.online/${{ github.event.inputs.slug }}"
+              }
+            }'
+      
+      # Notify build failure
+      - name: Notify Build Failure
+        if: failure()
+        env:
+          STAN_BACKEND_URL: ${{ secrets.STAN_BACKEND_URL }}
+          STAN_API_KEY: ${{ secrets.STAN_API_KEY }}
+        run: |
+          # Notify backend of failure
+          curl -X POST "$STAN_BACKEND_URL/api/build/complete" \
+            -H "Authorization: Bearer $STAN_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "project_id": "${{ github.event.inputs.project_id }}",
+              "status": "failed",
+              "game_name": "${{ github.event.inputs.game_name }}"
+            }'
+          
+          # Send failure email
+          curl -X POST "https://mailer.stanlink.online/stanlink.online/mailer1/stan-build-failed" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "to": "${{ secrets.NOTIFICATION_EMAIL }}",
+              "sender": "stan",
+              "variables": {
+                "subject": "❌ ${{ github.event.inputs.game_name }} - Unity Build Failed",
+                "game_name": "${{ github.event.inputs.game_name }}",
+                "engine": "Unity",
+                "error_message": "Build failed during GitHub Actions workflow"
+              }
             }'
       
       # Cleanup

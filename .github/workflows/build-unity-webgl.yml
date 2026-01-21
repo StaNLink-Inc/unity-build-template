@@ -128,7 +128,7 @@ jobs:
           
           # Upload build artifacts to the slug folder in stan-games
           # The gateway worker expects files at R2:stan-games/[slug]/index.html
-          aws s3 sync build/WebGL/WebGL s3://$R2_GAMES_BUCKET/${{ github.event.inputs.slug }} \
+          aws s3 sync build/WebGL/WebGL s3://stan-games/${{ github.event.inputs.slug }} \
             --endpoint-url $R2_ENDPOINT \
             --delete
           

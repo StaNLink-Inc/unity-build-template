@@ -46,26 +46,26 @@ jobs:
           curl -L -f "$FULL_URL" -o project/template.unitypackage
           echo "HAS_TEMPLATE=true" >> $GITHUB_ENV
 
-      - name: Import Template & Configure (via GameCI)
+      - name: Import Template & Configure (Direct Unity CLI)
         if: ${{ env.HAS_TEMPLATE == 'true' }}
-        uses: game-ci/unity-builder@v4
-        env:
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
-        with:
-          projectPath: ./project
-          unityVersion: 2022.3.10f1
-          # We use a dummy build method or custom parameters to just import
-          # But -importPackage requires the Editor to be running.
-          # We can use -executeMethod to run a script we inject, OR just rely on CLI.
-          # GameCI allows customParameters override.
-          # Note: We need a command that runs and exits.
-          # Trying straightforward -importPackage approach
-          customParameters: -importPackage /github/workspace/project/template.unitypackage -quit -batchmode -nographics
-          buildMethod: UnityEditor.EditorApplication.Exit
-          allowDirtyBuild: true
-          versioning: None
+        run: |
+          # Install Unity Hub and Unity Editor
+          wget -qO - https://hub.unity3d.com/linux/keys/public | gpg --dearmor | sudo tee /usr/share/keyrings/Unity_Technologies_ApS.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/Unity_Technologies_ApS.gpg] https://hub.unity3d.com/linux/repos/deb stable main" | sudo tee /etc/apt/sources.list.d/unityhub.list
+          sudo apt update
+          sudo apt install -y unityhub
+          
+          # Install Unity 2022.3.10f1
+          unityhub --headless install --version 2022.3.10f1 --changeset 8bf49c377ebf
+          
+          # Activate Unity license
+          /opt/unity/editors/2022.3.10f1/Editor/Unity -batchmode -quit -serial ${{ secrets.UNITY_SERIAL }} -username ${{ secrets.UNITY_EMAIL }} -password ${{ secrets.UNITY_PASSWORD }}
+          
+          # Import the template package
+          /opt/unity/editors/2022.3.10f1/Editor/Unity -batchmode -quit -projectPath ./project -importPackage ./project/template.unitypackage
+          
+          # Return Unity license
+          /opt/unity/editors/2022.3.10f1/Editor/Unity -batchmode -quit -returnlicense
 
 
 
@@ -118,8 +118,8 @@ jobs:
           [r2]
           type = s3
           provider = Cloudflare
-          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
-          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          access_key_id = ${{ secrets.R2_ACCESS_KEY }}
+          secret_access_key = ${{ secrets.R2_SECRET_KEY }}
           endpoint = $R2_ENDPOINT
           acl = private
           EOF

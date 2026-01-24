@@ -24,11 +24,7 @@ jobs:
           curl -X POST "${{ inputs.callback_url }}/api/build/preflight-status" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${{ secrets.STAN_API_KEY }}" \
-            -d '{
-              "projectId": "${{ inputs.project_id }}",
-              "status": "running",
-              "message": "Running preflight checks..."
-            }'
+            -d '{ "projectId": "${{ inputs.project_id }}", "status": "running", "message": "Running preflight checks..." }'
       
       - name: 📥 Download Project from R2
         env:
@@ -96,7 +92,8 @@ jobs:
             if grep -q "MonoBehaviour" "$file"; then
               if ! grep -q "using UnityEngine;" "$file"; then
                 error_found=true
-                error_details="$error_details\n$(basename $file): Missing 'using UnityEngine;'"
+                error_details="$error_details\n$(basename $file): Missing 'using UnityEngine;'
+"
               fi
             fi
           done <<< "$cs_files"
@@ -150,15 +147,7 @@ jobs:
           curl -X POST "${{ inputs.callback_url }}/api/build/preflight-status" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${{ secrets.STAN_API_KEY }}" \
-            -d '{
-              "projectId": "${{ inputs.project_id }}",
-              "status": "passed",
-              "message": "All preflight checks passed!",
-              "details": {
-                "projectSize": "${{ steps.size_check.outputs.size_mb }}MB",
-                "estimatedBuildTime": "10-30 minutes"
-              }
-            }'
+            -d '{ "projectId": "${{ inputs.project_id }}", "status": "passed", "message": "All preflight checks passed!", "details": { "projectSize": "${{ steps.size_check.outputs.size_mb }}MB", "estimatedBuildTime": "10-30 minutes" } }'
       
       - name: ❌ Preflight Failed
         if: failure()
@@ -176,13 +165,4 @@ jobs:
           curl -X POST "${{ inputs.callback_url }}/api/build/preflight-status" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${{ secrets.STAN_API_KEY }}" \
-            -d "{
-              \"projectId\": \"${{ inputs.project_id }}\",
-              \"status\": \"failed\",
-              \"message\": \"$error_message\",
-              \"errors\": {
-                \"structure\": \"$structure_error\",
-                \"scripts\": \"$script_error\",
-                \"dependencies\": \"$dependency_error\"
-              }
-            }"
+            -d "{ \"projectId\": \"${{ inputs.project_id }}\", \"status\": \"failed\", \"message\": \"$error_message\", \"errors\": { \"structure\": \"$structure_error\", \"scripts\": \"$script_error\", \"dependencies\": \"$dependency_error\" } }"

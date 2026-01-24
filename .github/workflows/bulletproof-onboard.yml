@@ -19,12 +19,19 @@ on:
         required: true
         default: 'games.stanlink.online'
 
+env:
+  UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+  UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+  UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+  UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+  UNITY_MANUAL_LICENSE: ${{ secrets.UNITY_MANUAL_LICENSE }}
+
 jobs:
   setup-unity:
     runs-on: ubuntu-latest
     outputs:
-      unity-path: ${{ steps.setup.outputs.unity-path }}
-      activation-method: ${{ steps.activation.outputs.method }}
+      unity-path: ${{ steps.set-path.outputs.path }}
+      activation-method: ${{ steps.activate-unity.outputs.method }}
     
     steps:
       - name: Checkout
@@ -37,113 +44,55 @@ jobs:
           path: /opt/unity
           key: unity-2022.3.21f1-linux-v2
       
-      - name: Install Unity
-        id: setup
+      - name: Install Unity (if not cached)
+        id: install-unity
         if: steps.cache-unity.outputs.cache-hit != 'true'
         run: |
           echo "📦 Installing Unity Editor..."
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ca-certificates curl gnupg
+          curl -fsSL https://unity.com/unity-hub/repos/apt/unityhub.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/unityhub.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/unityhub.gpg] https://unity.com/unity-hub/repos/apt/ stable main" | sudo tee /etc/apt/sources.list.d/unityhub.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y unityhub
           
-          # Install Unity Hub
-          wget -qO - https://hub.unity3d.com/linux/keys/public | sudo apt-key add -
-          echo 'deb https://hub.unity3d.com/linux/repos/deb stable main' | sudo tee /etc/apt/sources.list.d/unityhub.list
-          sudo apt update
-          sudo apt install unityhub -y
-          
-          # Create Unity directory
           sudo mkdir -p /opt/unity
+          sudo chmod 777 /opt/unity
           
-          # Install Unity Editor
           unityhub --headless install --version 2022.3.21f1 --changeset bf09ca542b87 --installPath /opt/unity
           
-          # Set permissions
-          sudo chmod -R 755 /opt/unity/
-          
-          # Set output
-          echo "unity-path=/opt/unity/2022.3.21f1/Editor/Unity" >> $GITHUB_OUTPUT
-          
           echo "✅ Unity installation completed"
-      
-      - name: Set Unity Path (Cached)
-        if: steps.cache-unity.outputs.cache-hit == 'true'
+
+      - name: Set Unity Path Output
+        id: set-path
         run: |
-          echo "unity-path=/opt/unity/2022.3.21f1/Editor/Unity" >> $GITHUB_OUTPUT
+          echo "path=/opt/unity/2022.3.21f1/Editor/Unity" >> $GITHUB_OUTPUT
       
       - name: Activate Unity (Multiple Methods)
-        id: activation
+        id: activate-unity
         run: |
-          UNITY_PATH="/opt/unity/2022.3.21f1/Editor/Unity"
+          UNITY_EXE="/opt/unity/2022.3.21f1/Editor/Unity"
+          echo "🔑 Attempting Unity activation..."
           
-          echo "🔑 Attempting Unity activation with multiple methods..."
-          
-          # Method 1: License File (Most Reliable)
-          echo "📄 Trying license file method..."
+          # Method 1: License File
           mkdir -p ~/.local/share/unity3d/Unity/
-          
-          if [ -n "${{ secrets.UNITY_LICENSE }}" ]; then
-            echo "${{ secrets.UNITY_LICENSE }}" | base64 -d > ~/.local/share/unity3d/Unity/Unity_lic.ulf
-            
-            # Test license file
-            if "$UNITY_PATH" -quit -batchmode -nographics -createProject /tmp/license_test -logFile license_test.log; then
+          if [ -n "${{ env.UNITY_LICENSE }}" ]; then
+            echo "${{ env.UNITY_LICENSE }}" | base64 -d > ~/.local/share/unity3d/Unity/Unity_lic.ulf
+            if "$UNITY_EXE" -quit -batchmode -nographics -createProject /tmp/license_test -logFile license_test.log; then
               echo "✅ License file activation successful!"
               echo "method=license_file" >> $GITHUB_OUTPUT
               exit 0
-            else
-              echo "❌ License file method failed"
-              cat license_test.log || true
             fi
           fi
           
-          # Method 2: Personal License
-          echo "👤 Trying personal license method..."
-          if [ -n "${{ secrets.UNITY_EMAIL }}" ] && [ -n "${{ secrets.UNITY_PASSWORD }}" ]; then
-            if "$UNITY_PATH" -quit -batchmode -nographics -username "${{ secrets.UNITY_EMAIL }}" -password "${{ secrets.UNITY_PASSWORD }}" -logFile personal_test.log; then
-              echo "✅ Personal license activation successful!"
-              echo "method=personal_license" >> $GITHUB_OUTPUT
-              exit 0
-            else
-              echo "❌ Personal license method failed"
-              cat personal_test.log || true
-            fi
-          fi
-          
-          # Method 3: Unity Hub
-          echo "🏢 Trying Unity Hub method..."
-          if [ -n "${{ secrets.UNITY_EMAIL }}" ] && [ -n "${{ secrets.UNITY_PASSWORD }}" ]; then
-            if unityhub --headless login --username "${{ secrets.UNITY_EMAIL }}" --password "${{ secrets.UNITY_PASSWORD }}"; then
-              if unityhub --headless activate --license-type personal; then
-                echo "✅ Unity Hub activation successful!"
-                echo "method=unity_hub" >> $GITHUB_OUTPUT
+          # Method 2: Serial
+          if [ -n "${{ env.UNITY_SERIAL }}" ]; then
+             if "$UNITY_EXE" -quit -batchmode -nographics -serial "${{ env.UNITY_SERIAL }}" -username "${{ env.UNITY_EMAIL }}" -password "${{ env.UNITY_PASSWORD }}" -logFile serial_test.log; then
+                echo "✅ Serial activation successful!"
+                echo "method=serial_license" >> $GITHUB_OUTPUT
                 exit 0
-              fi
-            fi
-            echo "❌ Unity Hub method failed"
+             fi
           fi
           
-          # Method 4: Manual Activation (if we have stored response)
-          echo "🔧 Trying manual activation method..."
-          if [ -n "${{ secrets.UNITY_MANUAL_LICENSE }}" ]; then
-            # Generate activation request
-            "$UNITY_PATH" -quit -batchmode -nographics -createManualActivationFile -logFile manual_request.log
-            
-            if [ -f Unity_v*.alf ]; then
-              echo "📄 Manual activation file created"
-              
-              # Apply stored manual license
-              echo "${{ secrets.UNITY_MANUAL_LICENSE }}" | base64 -d > Unity_lic.ulf
-              
-              if "$UNITY_PATH" -quit -batchmode -nographics -manualLicenseFile Unity_lic.ulf -logFile manual_apply.log; then
-                echo "✅ Manual activation successful!"
-                echo "method=manual_activation" >> $GITHUB_OUTPUT
-                exit 0
-              else
-                echo "❌ Manual activation failed"
-                cat manual_apply.log || true
-              fi
-            fi
-          fi
-          
-          # All methods failed
-          echo "❌ All activation methods failed!"
           echo "method=failed" >> $GITHUB_OUTPUT
           exit 1
 
@@ -171,36 +120,18 @@ jobs:
       
       - name: Restore Unity License
         run: |
-          echo "🔑 Restoring Unity license using method: ${{ needs.setup-unity.outputs.activation-method }}"
-          
-          case "${{ needs.setup-unity.outputs.activation-method }}" in
-            "license_file")
-              mkdir -p ~/.local/share/unity3d/Unity/
-              echo "${{ secrets.UNITY_LICENSE }}" | base64 -d > ~/.local/share/unity3d/Unity/Unity_lic.ulf
-              ;;
-            "personal_license")
-              /opt/unity/2022.3.21f1/Editor/Unity -quit -batchmode -nographics -username "${{ secrets.UNITY_EMAIL }}" -password "${{ secrets.UNITY_PASSWORD }}" -logFile restore_license.log
-              ;;
-            "unity_hub")
-              unityhub --headless login --username "${{ secrets.UNITY_EMAIL }}" --password "${{ secrets.UNITY_PASSWORD }}"
-              unityhub --headless activate --license-type personal
-              ;;
-            "manual_activation")
-              echo "${{ secrets.UNITY_MANUAL_LICENSE }}" | base64 -d > Unity_lic.ulf
-              /opt/unity/2022.3.21f1/Editor/Unity -quit -batchmode -nographics -manualLicenseFile Unity_lic.ulf -logFile restore_manual.log
-              ;;
-          esac
-          
-          echo "✅ Unity license restored"
+          UNITY_EXE="${{ needs.setup-unity.outputs.unity-path }}"
+          if [ "${{ needs.setup-unity.outputs.activation-method }}" == "license_file" ]; then
+             mkdir -p ~/.local/share/unity3d/Unity/
+             echo "${{ env.UNITY_LICENSE }}" | base64 -d > ~/.local/share/unity3d/Unity/Unity_lic.ulf
+          fi
       
       - name: Import Template (if specified)
         if: ${{ inputs.template_package != '' }}
         env:
           STAN_TEMPLATES_PUBLIC_URL: ${{ secrets.STAN_TEMPLATES_PUBLIC_URL }}
         run: |
-          echo "📥 Downloading and importing template: ${{ inputs.template_package }}"
-          
-          # Download template
+          UNITY_EXE="${{ needs.setup-unity.outputs.unity-path }}"
           TEMPLATE_PATH="${{ inputs.template_package }}"
           TEMPLATE_PATH="${TEMPLATE_PATH#templates/}"
           ENCODED_PATH=$(echo "$TEMPLATE_PATH" | sed 's/ /%20/g')
@@ -208,27 +139,16 @@ jobs:
           
           curl -L -f "$FULL_URL" -o template.unitypackage
           
-          # Import template
-          /opt/unity/2022.3.21f1/Editor/Unity \
-            -quit \
-            -batchmode \
-            -nographics \
-            -projectPath ./project \
-            -importPackage $(pwd)/template.unitypackage \
-            -logFile import_template.log
+          "$UNITY_EXE" -quit -batchmode -nographics -projectPath ./project -importPackage $(pwd)/template.unitypackage -logFile import_template.log
           
           echo "✅ Template imported successfully"
       
       - name: Configure Project
         run: |
-          echo "⚙️ Configuring project settings..."
-          
-          # Replace placeholders in core scripts
           sed -i 's/{{PROJECT_ID}}/${{ inputs.project_id }}/g' project/Assets/_StanCore/Scripts/StanAnalytics.cs
           sed -i 's/{{IS_PAID}}/${{ inputs.is_paid }}/g' project/Assets/_StanCore/Scripts/StanWatermark.cs
           sed -i 's/{{ALLOWED_DOMAINS}}/${{ inputs.allowed_domains }}/g' project/Assets/_StanCore/Scripts/StanDomainLock.cs
           
-          # Create stan-config.json
           cat > project/Assets/_StanCore/Resources/stan-config.json << EOF
           {
             "domains": ["${{ inputs.allowed_domains }}"],
@@ -241,46 +161,31 @@ jobs:
       
       - name: Test Unity Project
         run: |
-          echo "🧪 Testing Unity project compilation..."
-          
-          /opt/unity/2022.3.21f1/Editor/Unity \
-            -quit \
-            -batchmode \
-            -nographics \
-            -projectPath ./project \
-            -executeMethod UnityEditor.EditorApplication.Exit \
-            -logFile test_compile.log
-          
+          UNITY_EXE="${{ needs.setup-unity.outputs.unity-path }}"
+          "$UNITY_EXE" -quit -batchmode -nographics -projectPath ./project -executeMethod UnityEditor.EditorApplication.Exit -logFile test_compile.log
           echo "✅ Project compilation test passed"
       
       - name: Upload to R2
+        env:
+           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+           R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
+           R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
         run: |
-          echo "☁️ Uploading project to R2..."
-          
-          # Install rclone
           curl https://rclone.org/install.sh | sudo bash
-          
-          # Configure rclone
           mkdir -p ~/.config/rclone
+          CLEAN_ENDPOINT=$(echo "$R2_ENDPOINT" | sed 's|\.r2\.cloudflarestorage\.com.*|.r2.cloudflarestorage.com|')
           cat > ~/.config/rclone/rclone.conf << EOF
           [r2]
           type = s3
           provider = Cloudflare
-          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
-          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          endpoint = https://c4bfd8b7429b61b9122497ec401f7693.r2.cloudflarestorage.com
+          access_key_id = $R2_ACCESS_KEY
+          secret_access_key = $R2_SECRET_KEY
+          endpoint = $CLEAN_ENDPOINT
           region = auto
           EOF
           
-          # Create bucket path and upload
           rclone mkdir r2:stan-projects/${{ inputs.project_id }}
-          
-          rclone sync ./project r2:stan-projects/${{ inputs.project_id }} \
-            --progress \
-            --exclude '.git/**' \
-            --exclude 'Library/**' \
-            --exclude 'Temp/**' \
-            --exclude 'Logs/**'
+          rclone sync ./project r2:stan-projects/${{ inputs.project_id }} --progress --exclude '.git/**' --exclude 'Library/**' --exclude 'Temp/**' --exclude 'Logs/**'
           
           echo "✅ Project uploaded to R2"
       
@@ -290,6 +195,7 @@ jobs:
           
           curl -X POST "https://stan-backend.stanleyisaac134.workers.dev/api/projects/${{ inputs.project_id }}/onboarded" \
             -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.STAN_API_KEY }}" \
             -d '{
               "status": "onboarded",
               "template": "${{ inputs.template_package }}",
@@ -300,56 +206,47 @@ jobs:
             }'
           
           echo "✅ Backend notified"
-      
-      - name: Success Summary
-        run: |
-          echo "🎉 Project onboarding completed successfully!"
-          echo "=================================="
-          echo "📋 Project ID: ${{ inputs.project_id }}"
-          echo "📦 Template: ${{ inputs.template_package || 'Base project only' }}"
-          echo "🔑 Unity Activation: ${{ needs.setup-unity.outputs.activation-method }}"
-          echo "☁️ Location: R2 stan-projects/${{ inputs.project_id }}"
-          echo "=================================="
 
-  handle-failure:
+handle-failure:
     runs-on: ubuntu-latest
     needs: setup-unity
     if: needs.setup-unity.outputs.activation-method == 'failed'
     
     steps:
       - name: Fallback to Base Project
+        env:
+           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+           R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
+           R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
         run: |
           echo "⚠️ Unity activation failed - creating base project without Unity processing"
           
-          # Clone base project
           git clone https://github.com/StaNLink-Inc/stanstarter.git project
           rm -rf project/.git
           
-          # Configure without Unity
           sed -i 's/{{PROJECT_ID}}/${{ inputs.project_id }}/g' project/Assets/_StanCore/Scripts/StanAnalytics.cs || true
           sed -i 's/{{IS_PAID}}/${{ inputs.is_paid }}/g' project/Assets/_StanCore/Scripts/StanWatermark.cs || true
           sed -i 's/{{ALLOWED_DOMAINS}}/${{ inputs.allowed_domains }}/g' project/Assets/_StanCore/Scripts/StanDomainLock.cs || true
           
-          # Upload to R2
           curl https://rclone.org/install.sh | sudo bash
-          
           mkdir -p ~/.config/rclone
+          CLEAN_ENDPOINT=$(echo "$R2_ENDPOINT" | sed 's|\.r2\.cloudflarestorage\.com.*|.r2.cloudflarestorage.com|')
           cat > ~/.config/rclone/rclone.conf << EOF
           [r2]
           type = s3
           provider = Cloudflare
-          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
-          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          endpoint = https://c4bfd8b7429b61b9122497ec401f7693.r2.cloudflarestorage.com
+          access_key_id = $R2_ACCESS_KEY
+          secret_access_key = $R2_SECRET_KEY
+          endpoint = $CLEAN_ENDPOINT
           region = auto
           EOF
           
           rclone mkdir r2:stan-projects/${{ inputs.project_id }}
           rclone sync ./project r2:stan-projects/${{ inputs.project_id }} --progress
           
-          # Notify backend of fallback
           curl -X POST "https://stan-backend.stanleyisaac134.workers.dev/api/projects/${{ inputs.project_id }}/onboarded" \
             -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.STAN_API_KEY }}" \
             -d '{
               "status": "onboarded_base_only",
               "template": "",

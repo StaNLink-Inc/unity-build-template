@@ -25,16 +25,93 @@ on:
         type: string
         default: 'false'
 
+env:
+  UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+  UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+  UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+  UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+  UNITY_MANUAL_LICENSE: ${{ secrets.UNITY_MANUAL_LICENSE }}
+
 jobs:
+  setup-unity:
+    runs-on: ubuntu-latest
+    outputs:
+      unity-path: ${{ steps.set-path.outputs.path }}
+      activation-method: ${{ steps.activate-unity.outputs.method }}
+      unity-version: "2022.3.21f1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Unity Installation
+        id: cache-unity
+        uses: actions/cache@v3
+        with:
+          path: /opt/unity
+          key: unity-2022.3.21f1-linux-v4
+          restore-keys: |
+            unity-2022.3.21f1-linux-
+
+      - name: Install Unity (if not cached)
+        if: steps.cache-unity.outputs.cache-hit != 'true'
+        run: |
+          echo "📦 Installing Unity Editor..."
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ca-certificates curl gnupg
+          curl -fsSL https://unity.com/unity-hub/repos/apt/unityhub.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/unityhub.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/unityhub.gpg] https://unity.com/unity-hub/repos/apt/ stable main" | sudo tee /etc/apt/sources.list.d/unityhub.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y unityhub
+          
+          sudo mkdir -p /opt/unity
+          sudo chmod 777 /opt/unity
+          
+          unityhub --headless install --version 2022.3.21f1 --changeset bf09ca542b87 --installPath /opt/unity
+          
+          echo "✅ Unity installation completed"
+
+      - name: Set Unity Path Output
+        id: set-path
+        run: |
+          echo "path=/opt/unity/2022.3.21f1/Editor/Unity" >> $GITHUB_OUTPUT
+
+      - name: Activate Unity
+        id: activate-unity
+        run: |
+          UNITY_EXE="/opt/unity/2022.3.21f1/Editor/Unity"
+          echo "🔑 Attempting Unity activation..."
+          
+          mkdir -p ~/.local/share/unity3d/Unity/
+          if [ -n "${{ env.UNITY_LICENSE }}" ]; then
+            echo "${{ env.UNITY_LICENSE }}" | base64 -d > ~/.local/share/unity3d/Unity/Unity_lic.ulf
+            if "$UNITY_EXE" -quit -batchmode -nographics -createProject /tmp/license_test -logFile license_test.log; then
+              echo "✅ License file activation successful!"
+              echo "method=license_file" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
+          
+          if [ -n "${{ env.UNITY_SERIAL }}" ]; then
+             if "$UNITY_EXE" -quit -batchmode -nographics -serial "${{ env.UNITY_SERIAL }}" -username "${{ env.UNITY_EMAIL }}" -password "${{ env.UNITY_PASSWORD }}" -logFile serial_test.log; then
+                echo "✅ Serial activation successful!"
+                echo "method=serial_license" >> $GITHUB_OUTPUT
+                exit 0
+             fi
+          fi
+
+          echo "method=failed" >> $GITHUB_OUTPUT
+          exit 1
+
   build-and-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    needs: setup-unity
+    if: needs.setup-unity.outputs.activation-method != 'failed'
     
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
       
-      # Download Unity project from R2 (Source bucket)
       - name: Download Unity Project from R2
         env:
           R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
@@ -43,91 +120,60 @@ jobs:
           R2_SOURCE_BUCKET: stan-projects
         run: |
           echo "📥 Downloading Unity project from R2..."
-          
-          # Install AWS CLI
           pip install awscli
-          
-          # Configure for R2
           aws configure set aws_access_key_id $R2_ACCESS_KEY
           aws configure set aws_secret_access_key $R2_SECRET_KEY
           aws configure set default.region auto
-          
-          # Download project
           mkdir -p UnityProject
           aws s3 sync s3://$R2_SOURCE_BUCKET/${{ github.event.inputs.r2_path }} ./UnityProject \
             --endpoint-url $R2_ENDPOINT
-          
           echo "✅ Project downloaded"
-          ls -la UnityProject/
-      
-      # Cache Unity Library folder for faster builds
+
       - name: Cache Unity Library
         uses: actions/cache@v3
         with:
           path: UnityProject/Library
-          key: Library-${{ github.event.inputs.slug }}
+          key: Library-${{ github.event.inputs.slug }}-${{ hashFiles('UnityProject/Assets/**', 'UnityProject/Packages/**') }}
           restore-keys: |
+            Library-${{ github.event.inputs.slug }}-
             Library-
-      
-      # Build Unity WebGL
-      - name: Build Unity WebGL (Direct CLI)
-        env:
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+
+      - name: Restore Unity Cache
+        uses: actions/cache@v3
+        with:
+          path: /opt/unity
+          key: unity-2022.3.21f1-linux-v4
+          
+      - name: Restore Unity License
         run: |
-          echo "🎮 Building Unity WebGL..."
-          
-          # Install Unity Hub and Unity Editor
-          wget -qO - https://hub.unity3d.com/linux/keys/public | gpg --dearmor | sudo tee /usr/share/keyrings/Unity_Technologies_ApS.gpg > /dev/null
-          echo "deb [signed-by=/usr/share/keyrings/Unity_Technologies_ApS.gpg] https://hub.unity3d.com/linux/repos/deb stable main" | sudo tee /etc/apt/sources.list.d/unityhub.list
-          sudo apt update
-          sudo apt install -y unityhub
-          
-          # Install Unity 2022.3.10f1
-          unityhub --headless install --version 2022.3.10f1 --changeset 8bf49c377ebf
-          
-          # Activate Unity license
-          /opt/unity/editors/2022.3.10f1/Editor/Unity -batchmode -quit -serial $UNITY_SERIAL -username $UNITY_EMAIL -password $UNITY_PASSWORD
-          
-          # Build WebGL
-          mkdir -p build/WebGL
-          /opt/unity/editors/2022.3.10f1/Editor/Unity -batchmode -quit -projectPath ./UnityProject -buildTarget WebGL -buildPath ./build/WebGL/WebGL
-          
-          echo "✅ WebGL build complete"
-          
-          # Return Unity license
-          /opt/unity/editors/2022.3.10f1/Editor/Unity -batchmode -quit -returnlicense
+          UNITY_EXE="${{ needs.setup-unity.outputs.unity-path }}"
+          if [ "${{ needs.setup-unity.outputs.activation-method }}" == "license_file" ]; then
+             mkdir -p ~/.local/share/unity3d/Unity/
+             echo "${{ env.UNITY_LICENSE }}" | base64 -d > ~/.local/share/unity3d/Unity/Unity_lic.ulf
+          fi
       
-      # Inject Adsterra Ads
+      - name: Build Unity WebGL
+        run: |
+          UNITY_EXE="${{ needs.setup-unity.outputs.unity-path }}"
+          echo "🎮 Building Unity WebGL..."
+          mkdir -p build/WebGL
+          "$UNITY_EXE" -batchmode -quit -projectPath ./UnityProject -buildTarget WebGL -buildPath ./build/WebGL/WebGL -logFile build.log
+          
       - name: Update project metadata with build settings
         run: |
           echo "📊 Fetching build settings from database..."
-          
-          # Fetch build settings from backend
-          RESPONSE=$(curl -s "https://stan-backend.stanleyisaac134.workers.dev/api/projects/${{ github.event.inputs.project_id }}/build-settings")
-          
-          # Extract isKidsSafe flag (default to false if not found)
+          RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.STAN_API_KEY }}" "https://stan-backend.stanleyisaac134.workers.dev/api/projects/${{ github.event.inputs.project_id }}/build-settings")
           IS_KIDS_SAFE=$(echo "$RESPONSE" | jq -r '.is_kids_safe // false')
           
-          echo "🎯 Kids Safe Mode: $IS_KIDS_SAFE"
-          
-          # Update stan-project.json with isKidsSite flag
           if [ -f "UnityProject/stan-project.json" ]; then
             jq ".isKidsSite = $IS_KIDS_SAFE" UnityProject/stan-project.json > tmp.json
             mv tmp.json UnityProject/stan-project.json
-            echo "✅ Updated stan-project.json with isKidsSite=$IS_KIDS_SAFE"
-          else
-            echo "⚠️ stan-project.json not found, skipping update"
           fi
       
       - name: Inject Stan Monetization
         run: |
-          echo "💰 Injecting Adsterra ads..."
           node inject-ads.js
-          echo "✅ Ads injected"
       
-      # Deploy to R2 Games Bucket (ORDERLY)
       - name: Deploy to R2 Games Bucket
         env:
           R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
@@ -136,31 +182,20 @@ jobs:
           R2_GAMES_BUCKET: stan-games
         run: |
           echo "🚀 Deploying WebGL build to R2 pool..."
-          
-          # Install AWS CLI
           pip install awscli
-          
-          # Configure for R2
           aws configure set aws_access_key_id $R2_ACCESS_KEY
           aws configure set aws_secret_access_key $R2_SECRET_KEY
           aws configure set default.region auto
-          
-          # Upload build artifacts to the slug folder in stan-games
-          # The gateway worker expects files at R2:stan-games/[slug]/index.html
           aws s3 sync build/WebGL/WebGL s3://stan-games/${{ github.event.inputs.slug }} \
             --endpoint-url $R2_ENDPOINT \
             --delete
-          
-          echo "✅ Deployed to R2: https://games.stanlink.online/${{ github.event.inputs.slug }}"
       
-      # Notify STAN backend of completion
-      - name: Notify STAN Backend
+      - name: Notify STAN Backend (Success)
         if: success()
         env:
           STAN_BACKEND_URL: ${{ secrets.STAN_BACKEND_URL }}
           STAN_API_KEY: ${{ secrets.STAN_API_KEY }}
         run: |
-          # Notify backend
           curl -X POST "$STAN_BACKEND_URL/api/build/complete" \
             -H "Authorization: Bearer $STAN_API_KEY" \
             -H "Content-Type: application/json" \
@@ -171,7 +206,6 @@ jobs:
               "game_name": "${{ github.event.inputs.game_name }}"
             }'
           
-          # Send success email
           curl -X POST "https://mailer.stanlink.online/stanlink.online/mailer1/stan-build-succesful" \
             -H "Content-Type: application/json" \
             -d '{
@@ -185,14 +219,12 @@ jobs:
               }
             }'
       
-      # Notify build failure
-      - name: Notify Build Failure
+      - name: Notify STAN Backend (Failure)
         if: failure()
         env:
           STAN_BACKEND_URL: ${{ secrets.STAN_BACKEND_URL }}
           STAN_API_KEY: ${{ secrets.STAN_API_KEY }}
         run: |
-          # Notify backend of failure
           curl -X POST "$STAN_BACKEND_URL/api/build/complete" \
             -H "Authorization: Bearer $STAN_API_KEY" \
             -H "Content-Type: application/json" \
@@ -202,7 +234,6 @@ jobs:
               "game_name": "${{ github.event.inputs.game_name }}"
             }'
           
-          # Send failure email
           curl -X POST "https://mailer.stanlink.online/stanlink.online/mailer1/stan-build-failed" \
             -H "Content-Type: application/json" \
             -d '{
@@ -216,11 +247,14 @@ jobs:
               }
             }'
       
-      # Cleanup
+      - name: Return Unity License
+        if: always()
+        run: |
+          UNITY_EXE="${{ needs.setup-unity.outputs.unity-path }}"
+          "$UNITY_EXE" -batchmode -quit -returnlicense -logFile return_license.log || true
+
       - name: Cleanup
         if: always()
         run: |
-          echo "🧹 Cleaning up..."
           rm -rf ./UnityProject
           rm -rf build/
-          echo "✅ Cleanup complete"

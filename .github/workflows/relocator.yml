@@ -51,69 +51,77 @@ jobs:
             
             # Generate Unity .meta file
             GUID=$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]')
-            META_CONTENT=""
             
             case $ASSET_TYPE in
               "texture"|"sprite")
-                META_CONTENT="fileFormatVersion: 2
-guid: $GUID
-TextureImporter:
-  internalIDToNameTable: []
-  externalObjects: {}
-  serializedVersion: 11
-  mipmaps:
-    mipMapMode: 0
-    enableMipMap: 1
-  textureType: 0
-  textureShape: 1
-  sRGBTexture: 1"
+                cat > "./temp/$FILENAME.meta" <<EOF
+          fileFormatVersion: 2
+          guid: $GUID
+          TextureImporter:
+            internalIDToNameTable: []
+            externalObjects: {}
+            serializedVersion: 11
+            mipmaps:
+              mipMapMode: 0
+              enableMipMap: 1
+            textureType: 0
+            textureShape: 1
+            sRGBTexture: 1
+          EOF
                 ;;
               "model")
-                META_CONTENT="fileFormatVersion: 2
-guid: $GUID
-ModelImporter:
-  serializedVersion: 20
-  internalIDToNameTable: []
-  externalObjects: {}
-  materials:
-    materialImportMode: 1
-  animations:
-    legacyGenerateAnimations: 4"
+                cat > "./temp/$FILENAME.meta" <<EOF
+          fileFormatVersion: 2
+          guid: $GUID
+          ModelImporter:
+            serializedVersion: 20
+            internalIDToNameTable: []
+            externalObjects: {}
+            materials:
+              materialImportMode: 1
+            animations:
+              legacyGenerateAnimations: 4
+          EOF
                 ;;
               "audio")
-                META_CONTENT="fileFormatVersion: 2
-guid: $GUID
-AudioImporter:
-  externalObjects: {}
-  serializedVersion: 6
-  defaultSettings:
-    loadType: 0
-    sampleRateSetting: 0
-    compressionFormat: 1"
+                cat > "./temp/$FILENAME.meta" <<EOF
+          fileFormatVersion: 2
+          guid: $GUID
+          AudioImporter:
+            externalObjects: {}
+            serializedVersion: 6
+            defaultSettings:
+              loadType: 0
+              sampleRateSetting: 0
+              compressionFormat: 1
+          EOF
                 ;;
               "script")
-                META_CONTENT="fileFormatVersion: 2
-guid: $GUID
-MonoImporter:
-  externalObjects: {}
-  serializedVersion: 2
-  defaultReferences: []
-  executionOrder: 0
-  icon: {instanceID: 0}"
+                cat > "./temp/$FILENAME.meta" <<EOF
+          fileFormatVersion: 2
+          guid: $GUID
+          MonoImporter:
+            externalObjects: {}
+            serializedVersion: 2
+            defaultReferences: []
+            executionOrder: 0
+            icon: {instanceID: 0}
+          EOF
                 ;;
               *)
-                META_CONTENT="fileFormatVersion: 2
-guid: $GUID
-DefaultImporter:
-  externalObjects: {}
-  userData: 
-  assetBundleName: 
-  assetBundleVariant: "
+                cat > "./temp/$FILENAME.meta" <<EOF
+          fileFormatVersion: 2
+          guid: $GUID
+          DefaultImporter:
+            externalObjects: {}
+            userData: 
+            assetBundleName: 
+            assetBundleVariant: 
+          EOF
                 ;;
             esac
             
             # Upload .meta file
-            echo "$META_CONTENT" > "./temp/$FILENAME.meta"
             rclone copy "./temp/$FILENAME.meta" "r2:stan-projects/${{ inputs.project_id }}/$DEST_DIR/" --progress
             
             rm -f "./temp/$FILENAME" "./temp/$FILENAME.meta"

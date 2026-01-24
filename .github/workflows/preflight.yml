@@ -32,6 +32,12 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
           AWS_EC2_METADATA_DISABLED: true
         run: |
+          # Install AWS CLI
+          pip install awscli
+          # Configure for R2
+          aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+          aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+          aws configure set default.region auto
           # Download project files from R2
           aws s3 sync s3://stan-projects/${{ inputs.slug }}/ ./project/ \
             --endpoint-url ${{ secrets.R2_ENDPOINT }} \
@@ -92,6 +98,7 @@ jobs:
             if grep -q "MonoBehaviour" "$file"; then
               if ! grep -q "using UnityEngine;" "$file"; then
                 error_found=true
+                # FIX: Ensure this is a single line with proper escaping if needed
                 error_details="$error_details\n$(basename $file): Missing 'using UnityEngine;'
 "
               fi

@@ -44,14 +44,14 @@ jobs:
           path: /opt/unity
           key: unity-2022.3.21f1-linux-v2
       
-      - name: Install Unity (if not cached)
+      - name: Install Unity
         id: install-unity
         if: steps.cache-unity.outputs.cache-hit != 'true'
         run: |
           echo "📦 Installing Unity Editor..."
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends ca-certificates curl gnupg
-          curl -fsSL https://unity.com/unity-hub/repos/apt/unityhub.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/unityhub.gpg
-          echo "deb [signed-by=/etc/apt/keyrings/unityhub.gpg] https://unity.com/unity-hub/repos/apt/ stable main" | sudo tee /etc/apt/sources.list.d/unityhub.list > /dev/null
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ca-certificates curl gnupg wget
+          wget -qO - https://hub.unity3d.com/linux/keys/public | gpg --dearmor | sudo tee /usr/share/keyrings/Unity_Technologies_ApS.gpg > /dev/null
+          echo "deb [signed-by=/etc/apt/keyrings/unityhub.gpg] https://hub.unity3d.com/linux/repos/deb stable main" | sudo tee /etc/apt/sources.list.d/unityhub.list > /dev/null
           sudo apt-get update
           sudo apt-get install -y unityhub
           
@@ -196,7 +196,7 @@ jobs:
           curl -X POST "https://stan-backend.stanleyisaac134.workers.dev/api/projects/${{ inputs.project_id }}/onboarded" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${{ secrets.STAN_API_KEY }}" \
-            -d '{
+            -d '{ 
               "status": "onboarded",
               "template": "${{ inputs.template_package }}",
               "templateImported": true,
@@ -247,7 +247,7 @@ handle-failure:
           curl -X POST "https://stan-backend.stanleyisaac134.workers.dev/api/projects/${{ inputs.project_id }}/onboarded" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${{ secrets.STAN_API_KEY }}" \
-            -d '{
+            -d '{ 
               "status": "onboarded_base_only",
               "template": "",
               "templateImported": false,

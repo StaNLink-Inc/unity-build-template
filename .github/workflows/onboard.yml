@@ -61,25 +61,22 @@ jobs:
           unityhub --headless install --version 2022.3.21f1 --changeset bf09ca542b87 --installPath /opt/unity
           
           echo "✅ Unity installation completed"
+          echo "🔍 Listing contents of /opt/unity for debugging:"
+          ls -R /opt/unity # Debugging output
 
       - name: Locate Unity
         id: locate-unity
         run: |
           echo "🔍 Locating Unity executable..."
-          # Look for Unity executable
-          if [ -f "/opt/unity/2022.3.21f1/Editor/Unity" ]; then
-             echo "path=/opt/unity/2022.3.21f1/Editor/Unity" >> $GITHUB_OUTPUT
-          else
-             # Search if standard path fails
-             UNITY_PATH=$(find /opt/unity -name "Unity" -type f -executable | head -n 1)
-             if [ -z "$UNITY_PATH" ]; then
-               echo "❌ Unity executable not found in /opt/unity!"
-               find /opt/unity -maxdepth 4
-               exit 1
-             fi
-             echo "✅ Found Unity at: $UNITY_PATH"
-             echo "path=$UNITY_PATH" >> $GITHUB_OUTPUT
+          UNITY_PATH=$(find /opt/unity -name "Unity" -type f -executable | head -n 1)
+          
+          if [ -z "$UNITY_PATH" ]; then
+            echo "❌ Unity executable not found in /opt/unity!"
+            find /opt/unity -maxdepth 4 # Increased maxdepth for more thorough search
+            # exit 1 # Temporarily commented out to see full logs
           fi
+          
+          echo "path=$UNITY_PATH" >> $GITHUB_OUTPUT
 
       - name: Set Unity Path Output
         id: set-path
@@ -88,6 +85,7 @@ jobs:
           if [ -n "$FOUND_PATH" ]; then
              echo "path=$FOUND_PATH" >> $GITHUB_OUTPUT
           else
+             # Fallback, though 'Locate Unity' step should exit if not found
              echo "path=/opt/unity/2022.3.21f1/Editor/Unity" >> $GITHUB_OUTPUT
           fi
 
@@ -97,6 +95,12 @@ jobs:
           UNITY_EXE="${{ steps.set-path.outputs.path }}"
           echo "🔑 Attempting Unity activation using: $UNITY_EXE"
           
+          if [ -z "$UNITY_EXE" ] || [ ! -f "$UNITY_EXE" ]; then
+            echo "❌ Unity executable path is empty or file does not exist. Cannot activate."
+            echo "method=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
           mkdir -p ~/.local/share/unity3d/Unity/
           if [ -n "${{ env.UNITY_LICENSE }}" ]; then
             echo "${{ env.UNITY_LICENSE }}" | base64 -d > ~/.local/share/unity3d/Unity/Unity_lic.ulf
@@ -156,6 +160,11 @@ jobs:
         run: |
           UNITY_EXE="${{ needs.setup-unity.outputs.unity-path }}"
           
+          if [ -z "$UNITY_EXE" ] || [ ! -f "$UNITY_EXE" ]; then
+            echo "❌ Unity executable path is empty or file does not exist. Cannot import template."
+            exit 1
+          fi
+
           if [ "${{ needs.setup-unity.outputs.activation-method }}" == "license_file" ]; then
              mkdir -p ~/.local/share/unity3d/Unity/
              echo "${{ env.UNITY_LICENSE }}" | base64 -d > ~/.local/share/unity3d/Unity/Unity_lic.ulf

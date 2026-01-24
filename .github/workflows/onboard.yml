@@ -49,35 +49,54 @@ jobs:
         if: steps.cache-unity.outputs.cache-hit != 'true'
         run: |
           echo "📦 Installing Unity Editor..."
-          
-          # Install Unity Hub (Fixed GPG Key URL)
           sudo apt-get update && sudo apt-get install -y --no-install-recommends ca-certificates curl gnupg wget
           wget -qO - https://hub.unity3d.com/linux/keys/public | gpg --dearmor | sudo tee /usr/share/keyrings/Unity_Technologies_ApS.gpg > /dev/null
           echo "deb [signed-by=/usr/share/keyrings/Unity_Technologies_ApS.gpg] https://hub.unity3d.com/linux/repos/deb stable main" | sudo tee /etc/apt/sources.list.d/unityhub.list > /dev/null
           sudo apt-get update
           sudo apt-get install -y unityhub
           
-          # Create Install Directory
           sudo mkdir -p /opt/unity
           sudo chmod 777 /opt/unity
           
-          # Install Editor
           unityhub --headless install --version 2022.3.21f1 --changeset bf09ca542b87 --installPath /opt/unity
           
           echo "✅ Unity installation completed"
 
+      - name: Locate Unity
+        id: locate-unity
+        run: |
+          echo "🔍 Locating Unity executable..."
+          # Look for Unity executable
+          if [ -f "/opt/unity/2022.3.21f1/Editor/Unity" ]; then
+             echo "path=/opt/unity/2022.3.21f1/Editor/Unity" >> $GITHUB_OUTPUT
+          else
+             # Search if standard path fails
+             UNITY_PATH=$(find /opt/unity -name "Unity" -type f -executable | head -n 1)
+             if [ -z "$UNITY_PATH" ]; then
+               echo "❌ Unity executable not found in /opt/unity!"
+               find /opt/unity -maxdepth 4
+               exit 1
+             fi
+             echo "✅ Found Unity at: $UNITY_PATH"
+             echo "path=$UNITY_PATH" >> $GITHUB_OUTPUT
+          fi
+
       - name: Set Unity Path Output
         id: set-path
         run: |
-          echo "path=/opt/unity/2022.3.21f1/Editor/Unity" >> $GITHUB_OUTPUT
+          FOUND_PATH="${{ steps.locate-unity.outputs.path }}"
+          if [ -n "$FOUND_PATH" ]; then
+             echo "path=$FOUND_PATH" >> $GITHUB_OUTPUT
+          else
+             echo "path=/opt/unity/2022.3.21f1/Editor/Unity" >> $GITHUB_OUTPUT
+          fi
 
       - name: Activate Unity
         id: activate-unity
         run: |
-          UNITY_EXE="/opt/unity/2022.3.21f1/Editor/Unity"
-          echo "🔑 Attempting Unity activation..."
+          UNITY_EXE="${{ steps.set-path.outputs.path }}"
+          echo "🔑 Attempting Unity activation using: $UNITY_EXE"
           
-          # Method 1: License File (Best for CI)
           mkdir -p ~/.local/share/unity3d/Unity/
           if [ -n "${{ env.UNITY_LICENSE }}" ]; then
             echo "${{ env.UNITY_LICENSE }}" | base64 -d > ~/.local/share/unity3d/Unity/Unity_lic.ulf
@@ -88,7 +107,6 @@ jobs:
             fi
           fi
           
-          # Method 2: Serial (Pro)
           if [ -n "${{ env.UNITY_SERIAL }}" ]; then
              if "$UNITY_EXE" -quit -batchmode -nographics -serial "${{ env.UNITY_SERIAL }}" -username "${{ env.UNITY_EMAIL }}" -password "${{ env.UNITY_PASSWORD }}" -logFile serial_test.log; then
                 echo "✅ Serial activation successful!"
@@ -98,8 +116,6 @@ jobs:
           fi
 
           echo "method=failed" >> $GITHUB_OUTPUT
-          # We don't exit 1 here to allow fallback to base project creation in next job if desired,
-          # but for now we'll fail the job if activation fails.
           exit 1
 
   onboard-project:
@@ -140,7 +156,6 @@ jobs:
         run: |
           UNITY_EXE="${{ needs.setup-unity.outputs.unity-path }}"
           
-          # Restore License File (if using file method)
           if [ "${{ needs.setup-unity.outputs.activation-method }}" == "license_file" ]; then
              mkdir -p ~/.local/share/unity3d/Unity/
              echo "${{ env.UNITY_LICENSE }}" | base64 -d > ~/.local/share/unity3d/Unity/Unity_lic.ulf
@@ -180,7 +195,6 @@ jobs:
           curl https://rclone.org/install.sh | sudo bash
           mkdir -p ~/.config/rclone
           
-          # Endpoint cleanup
           CLEAN_ENDPOINT=$(echo "$R2_ENDPOINT" | sed 's|\.r2\.cloudflarestorage\.com.*|.r2.cloudflarestorage.com|')
 
           cat > ~/.config/rclone/rclone.conf << CONF

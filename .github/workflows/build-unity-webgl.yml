@@ -59,7 +59,7 @@ jobs:
           echo "📦 Installing Unity Editor..."
           sudo apt-get update && sudo apt-get install -y --no-install-recommends ca-certificates curl gnupg wget
           wget -qO - https://hub.unity3d.com/linux/keys/public | gpg --dearmor | sudo tee /usr/share/keyrings/Unity_Technologies_ApS.gpg > /dev/null
-          echo "deb [signed-by=/etc/apt/keyrings/unityhub.gpg] https://unity.com/unity-hub/repos/apt/ stable main" | sudo tee /etc/apt/sources.list.d/unityhub.list > /dev/null
+          echo "deb [signed-by=/etc/apt/keyrings/unityhub.gpg] https://hub.unity3d.com/linux/repos/deb stable main" | sudo tee /etc/apt/sources.list.d/unityhub.list > /dev/null
           sudo apt-get update
           sudo apt-get install -y unityhub
           
@@ -70,16 +70,38 @@ jobs:
           
           echo "✅ Unity installation completed"
 
+      - name: Locate Unity
+        id: locate-unity
+        run: |
+          echo "🔍 Locating Unity executable..."
+          if [ -f "/opt/unity/2022.3.21f1/Editor/Unity" ]; then
+             echo "path=/opt/unity/2022.3.21f1/Editor/Unity" >> $GITHUB_OUTPUT
+          else
+             UNITY_PATH=$(find /opt/unity -name "Unity" -type f -executable | head -n 1)
+             if [ -z "$UNITY_PATH" ]; then
+               echo "❌ Unity executable not found in /opt/unity!"
+               find /opt/unity -maxdepth 4
+               exit 1
+             fi
+             echo "✅ Found Unity at: $UNITY_PATH"
+             echo "path=$UNITY_PATH" >> $GITHUB_OUTPUT
+          fi
+
       - name: Set Unity Path Output
         id: set-path
         run: |
-          echo "path=/opt/unity/2022.3.21f1/Editor/Unity" >> $GITHUB_OUTPUT
+          FOUND_PATH="${{ steps.locate-unity.outputs.path }}"
+          if [ -n "$FOUND_PATH" ]; then
+             echo "path=$FOUND_PATH" >> $GITHUB_OUTPUT
+          else
+             echo "path=/opt/unity/2022.3.21f1/Editor/Unity" >> $GITHUB_OUTPUT
+          fi
 
       - name: Activate Unity
         id: activate-unity
         run: |
-          UNITY_EXE="/opt/unity/2022.3.21f1/Editor/Unity"
-          echo "🔑 Attempting Unity activation..."
+          UNITY_EXE="${{ steps.set-path.outputs.path }}"
+          echo "🔑 Attempting Unity activation using: $UNITY_EXE"
           
           mkdir -p ~/.local/share/unity3d/Unity/
           if [ -n "${{ env.UNITY_LICENSE }}" ]; then

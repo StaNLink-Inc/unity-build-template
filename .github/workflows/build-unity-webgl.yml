@@ -29,110 +29,22 @@ env:
   UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
   UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
   UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
-  UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-  UNITY_MANUAL_LICENSE: ${{ secrets.UNITY_MANUAL_LICENSE }}
 
 jobs:
-  setup-unity:
-    runs-on: ubuntu-latest
-    outputs:
-      unity-path: ${{ steps.set-path.outputs.path }}
-      activation-method: ${{ steps.activate-unity.outputs.method }}
-      unity-version: "2022.3.21f1"
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Cache Unity Installation
-        id: cache-unity
-        uses: actions/cache@v3
-        with:
-          path: /opt/unity
-          key: unity-2022.3.21f1-linux-v4
-          restore-keys: |
-            unity-2022.3.21f1-linux-
-
-      - name: Install Unity (if not cached)
-        if: steps.cache-unity.outputs.cache-hit != 'true'
-        run: |
-          echo "📦 Installing Unity Editor..."
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends ca-certificates curl gnupg wget
-          wget -qO - https://hub.unity3d.com/linux/keys/public | gpg --dearmor | sudo tee /usr/share/keyrings/Unity_Technologies_ApS.gpg > /dev/null
-          echo "deb [signed-by=/etc/apt/keyrings/unityhub.gpg] https://hub.unity3d.com/linux/repos/deb stable main" | sudo tee /etc/apt/sources.list.d/unityhub.list > /dev/null
-          sudo apt-get update
-          sudo apt-get install -y unityhub
-          
-          sudo mkdir -p /opt/unity
-          sudo chmod 777 /opt/unity
-          
-          unityhub --headless install --version 2022.3.21f1 --changeset bf09ca542b87 --installPath /opt/unity
-          
-          echo "✅ Unity installation completed"
-
-      - name: Locate Unity
-        id: locate-unity
-        run: |
-          echo "🔍 Locating Unity executable..."
-          if [ -f "/opt/unity/2022.3.21f1/Editor/Unity" ]; then
-             echo "path=/opt/unity/2022.3.21f1/Editor/Unity" >> $GITHUB_OUTPUT
-          else
-             UNITY_PATH=$(find /opt/unity -name "Unity" -type f -executable | head -n 1)
-             if [ -z "$UNITY_PATH" ]; then
-               echo "❌ Unity executable not found in /opt/unity!"
-               find /opt/unity -maxdepth 4
-               exit 1
-             fi
-             echo "✅ Found Unity at: $UNITY_PATH"
-             echo "path=$UNITY_PATH" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Set Unity Path Output
-        id: set-path
-        run: |
-          FOUND_PATH="${{ steps.locate-unity.outputs.path }}"
-          if [ -n "$FOUND_PATH" ]; then
-             echo "path=$FOUND_PATH" >> $GITHUB_OUTPUT
-          else
-             echo "path=/opt/unity/2022.3.21f1/Editor/Unity" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Activate Unity
-        id: activate-unity
-        run: |
-          UNITY_EXE="${{ steps.set-path.outputs.path }}"
-          echo "🔑 Attempting Unity activation using: $UNITY_EXE"
-          
-          mkdir -p ~/.local/share/unity3d/Unity/
-          if [ -n "${{ env.UNITY_LICENSE }}" ]; then
-            echo "${{ env.UNITY_LICENSE }}" | base64 -d > ~/.local/share/unity3d/Unity/Unity_lic.ulf
-            if "$UNITY_EXE" -quit -batchmode -nographics -createProject /tmp/license_test -logFile license_test.log; then
-              echo "✅ License file activation successful!"
-              echo "method=license_file" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-          fi
-          
-          if [ -n "${{ env.UNITY_SERIAL }}" ]; then
-             if "$UNITY_EXE" -quit -batchmode -nographics -serial "${{ env.UNITY_SERIAL }}" -username "${{ env.UNITY_EMAIL }}" -password "${{ env.UNITY_PASSWORD }}" -logFile serial_test.log; then
-                echo "✅ Serial activation successful!"
-                echo "method=serial_license" >> $GITHUB_OUTPUT
-                exit 0
-             fi
-          fi
-
-          echo "method=failed" >> $GITHUB_OUTPUT
-          exit 1
-
   build-and-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    needs: setup-unity
-    if: needs.setup-unity.outputs.activation-method != 'failed'
     
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
       
       - name: Download Unity Project from R2
         env:
@@ -160,26 +72,19 @@ jobs:
             Library-${{ github.event.inputs.slug }}-
             Library-
 
-      - name: Restore Unity Cache
-        uses: actions/cache@v3
-        with:
-          path: /opt/unity
-          key: unity-2022.3.21f1-linux-v4
-          
-      - name: Restore Unity License
-        run: |
-          UNITY_EXE="${{ needs.setup-unity.outputs.unity-path }}"
-          if [ "${{ needs.setup-unity.outputs.activation-method }}" == "license_file" ]; then
-             mkdir -p ~/.local/share/unity3d/Unity/
-             echo "${{ env.UNITY_LICENSE }}" | base64 -d > ~/.local/share/unity3d/Unity/Unity_lic.ulf
-          fi
-      
+      # Build with GameCI Docker Image
       - name: Build Unity WebGL
-        run: |
-          UNITY_EXE="${{ needs.setup-unity.outputs.unity-path }}"
-          echo "🎮 Building Unity WebGL..."
-          mkdir -p build/WebGL
-          "$UNITY_EXE" -batchmode -quit -projectPath ./UnityProject -buildTarget WebGL -buildPath ./build/WebGL/WebGL -logFile build.log
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          targetPlatform: WebGL
+          projectPath: UnityProject
+          unityVersion: 2022.3.21f1
+          buildName: "WebGL"
           
       - name: Update project metadata with build settings
         run: |
@@ -194,6 +99,10 @@ jobs:
       
       - name: Inject Stan Monetization
         run: |
+          # Copy build to expected location for injection script if needed
+          # GameCI builds to build/WebGL by default
+          mkdir -p build/WebGL/WebGL
+          cp -r build/WebGL/* build/WebGL/WebGL/ 2>/dev/null || true
           node inject-ads.js
       
       - name: Deploy to R2 Games Bucket
@@ -268,12 +177,6 @@ jobs:
                 "error_message": "Build failed during GitHub Actions workflow"
               }
             }'
-      
-      - name: Return Unity License
-        if: always()
-        run: |
-          UNITY_EXE="${{ needs.setup-unity.outputs.unity-path }}"
-          "$UNITY_EXE" -batchmode -quit -returnlicense -logFile return_license.log || true
 
       - name: Cleanup
         if: always()

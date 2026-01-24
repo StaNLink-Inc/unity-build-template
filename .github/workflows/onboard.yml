@@ -24,108 +24,10 @@ env:
   UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
   UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
   UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-  UNITY_MANUAL_LICENSE: ${{ secrets.UNITY_MANUAL_LICENSE }}
 
 jobs:
-  setup-unity:
+  onboard:
     runs-on: ubuntu-latest
-    outputs:
-      unity-path: ${{ steps.set-path.outputs.path }}
-      activation-method: ${{ steps.activate-unity.outputs.method }}
-      unity-version: "2022.3.21f1"
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Cache Unity Installation
-        id: cache-unity
-        uses: actions/cache@v3
-        with:
-          path: /opt/unity
-          key: unity-2022.3.21f1-linux-v4
-
-      - name: Install Unity (if not cached)
-        if: steps.cache-unity.outputs.cache-hit != 'true'
-        run: |
-          echo "📦 Installing Unity Editor..."
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends ca-certificates curl gnupg wget
-          wget -qO - https://hub.unity3d.com/linux/keys/public | gpg --dearmor | sudo tee /usr/share/keyrings/Unity_Technologies_ApS.gpg > /dev/null
-          echo "deb [signed-by=/usr/share/keyrings/Unity_Technologies_ApS.gpg] https://hub.unity3d.com/linux/repos/deb stable main" | sudo tee /etc/apt/sources.list.d/unityhub.list > /dev/null
-          sudo apt-get update
-          sudo apt-get install -y unityhub
-          
-          sudo mkdir -p /opt/unity
-          sudo chmod 777 /opt/unity
-          
-          unityhub --headless install --version 2022.3.21f1 --changeset bf09ca542b87 --installPath /opt/unity
-          
-          echo "✅ Unity installation completed"
-          echo "🔍 Listing contents of /opt/unity for debugging:"
-          ls -R /opt/unity # Debugging output
-
-      - name: Locate Unity
-        id: locate-unity
-        run: |
-          echo "🔍 Locating Unity executable..."
-          UNITY_PATH=$(find /opt/unity -name "Unity" -type f -executable | head -n 1)
-          
-          if [ -z "$UNITY_PATH" ]; then
-            echo "❌ Unity executable not found in /opt/unity!"
-            find /opt/unity -maxdepth 4 # Increased maxdepth for more thorough search
-            # exit 1 # Temporarily commented out to see full logs
-          fi
-          
-          echo "path=$UNITY_PATH" >> $GITHUB_OUTPUT
-
-      - name: Set Unity Path Output
-        id: set-path
-        run: |
-          FOUND_PATH="${{ steps.locate-unity.outputs.path }}"
-          if [ -n "$FOUND_PATH" ]; then
-             echo "path=$FOUND_PATH" >> $GITHUB_OUTPUT
-          else
-             # Fallback, though 'Locate Unity' step should exit if not found
-             echo "path=/opt/unity/2022.3.21f1/Editor/Unity" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Activate Unity
-        id: activate-unity
-        run: |
-          UNITY_EXE="${{ steps.set-path.outputs.path }}"
-          echo "🔑 Attempting Unity activation using: $UNITY_EXE"
-          
-          if [ -z "$UNITY_EXE" ] || [ ! -f "$UNITY_EXE" ]; then
-            echo "❌ Unity executable path is empty or file does not exist. Cannot activate."
-            echo "method=failed" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-
-          mkdir -p ~/.local/share/unity3d/Unity/
-          if [ -n "${{ env.UNITY_LICENSE }}" ]; then
-            echo "${{ env.UNITY_LICENSE }}" | base64 -d > ~/.local/share/unity3d/Unity/Unity_lic.ulf
-            if "$UNITY_EXE" -quit -batchmode -nographics -createProject /tmp/license_test -logFile license_test.log; then
-              echo "✅ License file activation successful!"
-              echo "method=license_file" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-          fi
-          
-          if [ -n "${{ env.UNITY_SERIAL }}" ]; then
-             if "$UNITY_EXE" -quit -batchmode -nographics -serial "${{ env.UNITY_SERIAL }}" -username "${{ env.UNITY_EMAIL }}" -password "${{ env.UNITY_PASSWORD }}" -logFile serial_test.log; then
-                echo "✅ Serial activation successful!"
-                echo "method=serial_license" >> $GITHUB_OUTPUT
-                exit 0
-             fi
-          fi
-
-          echo "method=failed" >> $GITHUB_OUTPUT
-          exit 1
-
-  onboard-project:
-    runs-on: ubuntu-latest
-    needs: setup-unity
-    
     steps:
       - name: Checkout Template Repo
         uses: actions/checkout@v4
@@ -149,29 +51,30 @@ jobs:
           curl -L -f "$FULL_URL" -o project/template.unitypackage
           echo "HAS_TEMPLATE=true" >> $GITHUB_ENV
 
-      - name: Restore Unity Cache
-        uses: actions/cache@v3
-        with:
-          path: /opt/unity
-          key: unity-2022.3.21f1-linux-v4
-          
-      - name: Import Template
-        if: ${{ env.HAS_TEMPLATE == 'true' }}
+      - name: Free Disk Space
         run: |
-          UNITY_EXE="${{ needs.setup-unity.outputs.unity-path }}"
-          
-          if [ -z "$UNITY_EXE" ] || [ ! -f "$UNITY_EXE" ]; then
-            echo "❌ Unity executable path is empty or file does not exist. Cannot import template."
-            exit 1
-          fi
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
-          if [ "${{ needs.setup-unity.outputs.activation-method }}" == "license_file" ]; then
-             mkdir -p ~/.local/share/unity3d/Unity/
-             echo "${{ env.UNITY_LICENSE }}" | base64 -d > ~/.local/share/unity3d/Unity/Unity_lic.ulf
-          fi
-
-          echo "Importing template..."
-          "$UNITY_EXE" -batchmode -quit -projectPath ./project -importPackage ./project/template.unitypackage -logFile import.log
+      - name: Import Template & Configure
+        if: ${{ env.HAS_TEMPLATE == 'true' }}
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          targetPlatform: WebGL
+          projectPath: project
+          unityVersion: 2022.3.21f1
+          # Import package and quit. The path must be absolute mapped in the container.
+          # GameCI mounts github.workspace to /github/workspace
+          customParameters: -importPackage /github/workspace/project/template.unitypackage -quit -batchmode -nographics
+          buildName: "Onboarding"
+          skipBuild: true
 
       - name: Inject Configuration
         run: |
